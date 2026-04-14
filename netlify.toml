@@ -1,5 +1,6 @@
 [build]
   publish = "public"
+  command = ""
 
 [build.environment]
   # Set ATC_API_URL to your Render deployment URL in the Netlify dashboard
