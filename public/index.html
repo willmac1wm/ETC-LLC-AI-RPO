@@ -8,10 +8,10 @@
          or set manually in the CONFIG block below for quick demos -->
     <script>
       // ── CONFIG ────────────────────────────────────────────────────────────
-      // Set REACT_APP_API_URL (or ATC_API_URL) as a Netlify env var, OR
-      // paste your Render URL here directly for a quick share:
-      window.ATC_API_URL = "%%ATC_API_URL%%";   // replaced by Netlify at deploy
-      if (!window.ATC_API_URL || window.ATC_API_URL === "%%ATC_API_URL%%") {
+      // API URL for the backend - set this to your ngrok URL or backend endpoint
+      window.ATC_API_URL = "https://inconsiderately-inconsolable-elfrieda.ngrok-free.dev";
+      // If running locally, leave blank to use same origin
+      if (!window.ATC_API_URL) {
         window.ATC_API_URL = "";   // blank = try same-host (local dev)
       }
       // ─────────────────────────────────────────────────────────────────────
