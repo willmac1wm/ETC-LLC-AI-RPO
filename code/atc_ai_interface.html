@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATC-Whisper | AI Phaseology</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: rgba(22, 27, 34, 0.7);
+            --accent-green: #2ea043;
+            --accent-blue: #58a6ff;
+            --accent-yellow: #d29922;
+            --text-main: #c9d1d9;
+            --text-dim: #8b949e;
+            --border-color: rgba(240, 246, 252, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Radar Backdrop Effect */
+        .radar-grid {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: 
+                radial-gradient(circle at 50% 50%, rgba(46, 160, 67, 0.05) 0%, transparent 70%),
+                linear-gradient(rgba(240, 246, 252, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(240, 246, 252, 0.02) 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+            z-index: -1;
+        }
+
+        header {
+            padding: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(13, 17, 23, 0.8);
+            backdrop-filter: blur(10px);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-text h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            color: #fff;
+        }
+
+        .logo-text p {
+            font-size: 0.75rem;
+            color: var(--accent-green);
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+        }
+
+        .status-panel {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        .indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #30363d;
+        }
+
+        .indicator.active {
+            background: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+        }
+
+        .indicator.pulse {
+            animation: pulse-red 1s infinite;
+        }
+
+        @keyframes pulse-red {
+            0% { background: #f85149; box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.7); }
+            70% { background: #f85149; box-shadow: 0 0 0 10px rgba(248, 81, 73, 0); }
+            100% { background: #f85149; box-shadow: 0 0 0 0 rgba(248, 81, 73, 0); }
+        }
+
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 2rem;
+            padding: 2rem;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .transcript-container {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            backdrop-filter: blur(20px);
+        }
+
+        .transcript-header {
+            padding: 1rem 1.5rem;
+            background: rgba(240, 246, 252, 0.05);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .transcript-feed {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-color) transparent;
+        }
+
+        .log-entry {
+            display: grid;
+            grid-template-columns: 80px 1fr;
+            gap: 1rem;
+            padding: 0.75rem;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+
+        .log-entry:hover {
+            background: rgba(240, 246, 252, 0.03);
+        }
+
+        .log-time {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            padding-top: 2px;
+        }
+
+        .log-content {
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .log-entry.atc .log-content { color: var(--accent-yellow); font-weight: 600; }
+        .log-entry.pilot .log-content { color: var(--accent-blue); }
+
+        .control-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .stats-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .btn {
+            padding: 1rem;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+        }
+
+        .btn-primary {
+            background: var(--accent-green);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #3fb950;
+            transform: translateY(-2px);
+        }
+
+        .btn-stop {
+            background: #f85149;
+            color: #fff;
+            display: none;
+        }
+
+        .ptt-indicator {
+            position: fixed;
+            top: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(248, 81, 73, 0.9);
+            color: white;
+            padding: 0.5rem 2rem;
+            border-radius: 20px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 0 30px rgba(248, 81, 73, 0.5);
+            animation: pulse-red 1s infinite;
+        }
+
+        select {
+            background: var(--card-bg);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem;
+            border-radius: 8px;
+            width: 100%;
+            margin-top: 0.5rem;
+        }
+
+        .mini-radar {
+            width: 100%;
+            aspect-ratio: 1;
+            border: 2px solid var(--border-color);
+            border-radius: 50%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .radar-sweep {
+            position: absolute;
+            width: 50%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent-green));
+            top: 50%;
+            left: 50%;
+            transform-origin: left center;
+            animation: rotate-radar 4s linear infinite;
+        }
+
+        @keyframes rotate-radar {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .voice-viz {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            height: 40px;
+        }
+
+        .bar {
+            width: 4px;
+            height: 4px;
+            background: var(--accent-green);
+            border-radius: 2px;
+            transition: height 0.1s;
+        }
+
+        .bar.active {
+            animation: bounce 0.5s infinite alternate;
+        }
+
+        @keyframes bounce {
+            from { height: 4px; }
+            to { height: 30px; }
+        }
+
+
+        /* ── Three Output Panels ── */
+        .output-panels {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 1rem;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(13,17,23,0.6);
+        }
+        .out-panel {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            transition: border-color 0.3s;
+        }
+        .out-panel.flash { border-color: var(--accent-green); }
+        .out-panel-hdr {
+            padding: 0.4rem 0.9rem;
+            background: rgba(240,246,252,0.04);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.6rem;
+            letter-spacing: 2px;
+            color: #8b949e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .out-panel-body {
+            padding: 0.75rem 0.9rem;
+            min-height: 52px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        #panel-atc   .out-panel-body { color: #d29922; font-weight: 600; }
+        #panel-pilot .out-panel-body { color: #58a6ff; }
+        #panel-cmd   .out-panel-body { color: #3fb950; font-family: 'JetBrains Mono',monospace; font-size:1rem; letter-spacing:2px; font-weight:700; }
+        .panel-placeholder { color: #30363d; font-size: 0.8rem; }
+
+        /* Traffic state rows */
+        .traffic-row {
+            background: rgba(240,246,252,0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.5rem 0.75rem;
+            display: grid;
+            grid-template-columns: 90px 1fr;
+            gap: 0.4rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+        }
+        .traffic-cs {
+            color: #58a6ff;
+            font-weight: 700;
+            font-size: 0.8rem;
+            align-self: center;
+        }
+        .traffic-fields {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+        }
+        .t-chip {
+            background: rgba(240,246,252,0.06);
+            border-radius: 4px;
+            padding: 1px 6px;
+            font-size: 0.65rem;
+            color: var(--text-dim);
+        }
+        .t-chip span { color: var(--text-main); }
+        .traffic-ts {
+            grid-column: 1 / -1;
+            font-size: 0.6rem;
+            color: #30363d;
+        }
+        /* Confidence badge on log entries */
+        .conf-low { opacity: 0.55; border-left: 3px solid #f85149; padding-left: 0.5rem; }
+        .callsign-chip {
+            display: inline-block;
+            background: rgba(88,166,255,0.1);
+            border: 1px solid rgba(88,166,255,0.25);
+            color: #58a6ff;
+            font-size: 0.65rem;
+            padding: 1px 7px;
+            border-radius: 3px;
+            margin-right: 0.4rem;
+            letter-spacing: 1px;
+            vertical-align: middle;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="radar-grid"></div>
+    
+    <header>
+        <div class="logo">
+            <div class="logo-text">
+                <h1>ATC-WHISPER</h1>
+                <p>Real-time AI SPEECH ENGINE</p>
+            </div>
+        </div>
+        <div class="status-panel">
+            <div class="status-item">
+                <span id="server-indicator" class="indicator"></span>
+                SERVER: <span id="server-text">OFFLINE</span>
+            </div>
+            <div class="status-item">
+                <span id="engine-indicator" class="indicator"></span>
+                ENGINE: <span id="engine-text">IDLE</span>
+            </div>
+            <div class="status-item">
+                <span id="mic-indicator" class="indicator"></span>
+                VOICE READY
+            </div>
+        </div>
+    </header>
+
+    <div id="ptt-ui" class="ptt-indicator">TRANSMITTING...</div>
+
+
+    <!-- Three Output Panels -->
+    <div class="output-panels">
+        <div class="out-panel" id="panel-atc">
+            <div class="out-panel-hdr"><span>🎙 ATC SPOKEN COMMAND</span><span>CONTROLLER TX</span></div>
+            <div class="out-panel-body"><span class="panel-placeholder">Awaiting transmission…</span></div>
+        </div>
+        <div class="out-panel" id="panel-pilot">
+            <div class="out-panel-hdr"><span>✈ PILOT READBACK</span><span>AI RESPONSE</span></div>
+            <div class="out-panel-body"><span class="panel-placeholder">Awaiting transmission…</span></div>
+        </div>
+        <div class="out-panel" id="panel-cmd">
+            <div class="out-panel-hdr"><span>⌨ KEYBOARD COMMAND</span><span>OPENSTARS FORMAT</span></div>
+            <div class="out-panel-body"><span class="panel-placeholder">Awaiting transmission…</span></div>
+        </div>
+    </div>
+    <main>
+        <section class="transcript-container">
+            <div class="transcript-header">
+                <h3>PHRASEOLOGY LOG</h3>
+                <span class="status-item" id="vad-display" style="display:none;">
+                    <span class="indicator active pulse"></span> RECEIVING...
+                </span>
+            </div>
+            <div class="transcript-feed" id="feed">
+                <!-- Log entries will appear here -->
+                <div class="log-entry">
+                    <div class="log-time">SYSTEM</div>
+                    <div class="log-content">Waiting for connection...</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="control-panel">
+            <div class="stats-card">
+                <h3>CONTROLS</h3>
+                <label for="facility-select" style="font-size: 0.7rem; color: var(--text-dim);">FACILITY DATA PACK</label>
+                <select id="facility-select" style="margin-top: 0.25rem;">
+                    <option value="">— None loaded —</option>
+                </select>
+                <div id="facility-status" style="font-size: 0.65rem; color: var(--text-dim); margin-top: 0.3rem; font-family: 'JetBrains Mono', monospace;"></div>
+
+                <label for="device-select" style="font-size: 0.7rem; color: var(--text-dim); margin-top: 0.75rem; display: block;">INPUT DEVICE</label>
+                <select id="device-select" style="margin-top: 0.25rem;">
+                    <option value="">Default OS Microphone</option>
+                </select>
+
+                <!-- VAD Mode -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem;">
+                    <span style="font-size: 0.7rem; color: var(--text-dim); letter-spacing: 1px;">INPUT MODE</span>
+                    <span id="vad-mode-badge" style="font-size: 0.65rem; font-family: 'JetBrains Mono', monospace; color: var(--accent-green);">PTT</span>
+                </div>
+                <button id="vad-mode-btn" class="btn" style="background: #21262d; color: var(--text-dim); border: 1px solid var(--border-color); margin-top: 0.4rem; font-size: 0.75rem;">
+                    SWITCH TO CONTINUOUS VAD
+                </button>
+
+                <button id="start-btn" class="btn btn-primary" style="margin-top: 1rem;">START ENGINE</button>
+                <button id="stop-btn" class="btn btn-stop" style="margin-top: 1rem;">STOP ENGINE</button>
+                <p id="ptt-hint" style="font-size: 0.6rem; color: var(--text-dim); text-align: center; margin-top: 1rem;">
+                    HOLD [SPACE BAR] TO TRANSMIT
+                </p>
+
+                <!-- ── Log Export ── -->
+                <div style="border-top: 1px solid var(--border-color); margin-top: 1rem; padding-top: 1rem;">
+                    <a id="export-btn" href="/download_log" class="btn" style="background: #21262d; color: var(--text-dim); border: 1px solid var(--border-color); text-decoration: none;">
+                        EXPORT SESSION LOG
+                    </a>
+                </div>
+
+                <!-- ── TTS Readback ── -->
+                <div style="border-top: 1px solid var(--border-color); margin-top: 1rem; padding-top: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                        <span style="font-size: 0.7rem; color: var(--text-dim); letter-spacing: 1px;">PILOT READBACK (TTS)</span>
+                        <span id="tts-badge" style="font-size: 0.65rem; font-family: 'JetBrains Mono', monospace; color: var(--text-dim);">MUTED</span>
+                    </div>
+                    <button id="tts-btn" class="btn" style="background: #21262d; color: var(--text-dim); border: 1px solid var(--border-color);">
+                        ENABLE READBACK
+                    </button>
+                </div>
+
+                <!-- ── Keyboard Injection ── -->
+                <div style="border-top: 1px solid var(--border-color); margin-top: 1rem; padding-top: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                        <span style="font-size: 0.7rem; color: var(--text-dim); letter-spacing: 1px;">KEYBOARD INJECTION</span>
+                        <span id="inject-badge" style="font-size: 0.65rem; font-family: 'JetBrains Mono', monospace; color: var(--text-dim);">DISABLED</span>
+                    </div>
+                    <button id="inject-btn" class="btn" style="background: #21262d; color: var(--text-dim); border: 1px solid var(--border-color);">
+                        ENABLE INJECTION
+                    </button>
+                    <div id="inject-info" style="display: none; margin-top: 0.75rem; font-size: 0.65rem; font-family: 'JetBrains Mono', monospace; color: var(--text-dim);">
+                        COMMANDS SENT: <span id="inject-count">0</span>
+                    </div>
+                    <p style="font-size: 0.6rem; color: #f85149; margin-top: 0.6rem; line-height: 1.4;">
+                        ⚠ TYPES INTO ACTIVE WINDOW<br>FOCUS STARS BEFORE ENABLING<br>MOVE MOUSE TO CORNER TO ABORT
+                    </p>
+                </div>
+            </div>
+
+            <!-- TRAFFIC STATE PANEL -->
+            <div class="stats-card" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                    <h3>TRAFFIC</h3>
+                    <span id="traffic-count" style="font-size: 0.65rem; font-family: 'JetBrains Mono', monospace; color: var(--text-dim);">0 TRACKED</span>
+                </div>
+                <div id="traffic-feed" style="overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; flex: 1;">
+                    <p style="font-size: 0.75rem; color: #30363d;">No aircraft tracked yet.</p>
+                </div>
+            </div>
+
+            <div class="stats-card" style="align-items: center;">
+                <h3>VOICE ACTIVITY MONITOR</h3>
+                <div class="mini-radar">
+                    <div class="radar-sweep"></div>
+                    <div class="voice-viz" id="viz">
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const socket = io();
+        const feed = document.getElementById('feed');
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const deviceSelect = document.getElementById('device-select');
+        const pttUi = document.getElementById('ptt-ui');
+        const serverIndicator = document.getElementById('server-indicator');
+        const serverText = document.getElementById('server-text');
+        const engineIndicator = document.getElementById('engine-indicator');
+        const engineText = document.getElementById('engine-text');
+        const vadDisplay = document.getElementById('vad-display');
+        const vizBars = document.querySelectorAll('.bar');
+
+        let isPttActive = false;
+        let isEngineRunning = false;
+        let injectionEnabled = false;
+        let ttsEnabled = false;
+
+        const injectBtn   = document.getElementById('inject-btn');
+        const injectBadge = document.getElementById('inject-badge');
+        const injectInfo  = document.getElementById('inject-info');
+        const injectCount = document.getElementById('inject-count');
+        const ttsBtn         = document.getElementById('tts-btn');
+        const ttsBadge       = document.getElementById('tts-badge');
+        const facilitySelect = document.getElementById('facility-select');
+        const facilityStatus = document.getElementById('facility-status');
+        const vadModeBtn     = document.getElementById('vad-mode-btn');
+        const vadModeBadge   = document.getElementById('vad-mode-badge');
+        const pttHint        = document.getElementById('ptt-hint');
+        let   pttMode        = true;
+
+        socket.on('connect', () => {
+            serverIndicator.classList.add('active');
+            serverText.innerText = 'ONLINE';
+            addLog('SYSTEM', 'Connected to backend server.');
+        });
+
+        socket.on('status', (data) => {
+            isEngineRunning = data.engine_running;
+            
+            if (data.devices) {
+                deviceSelect.innerHTML = '<option value="">Default OS Microphone</option>';
+                data.devices.forEach(dev => {
+                    const opt = document.createElement('option');
+                    opt.value = dev.index;
+                    opt.textContent = dev.name;
+                    deviceSelect.appendChild(opt);
+                });
+            }
+
+            if (isEngineRunning) {
+                engineIndicator.classList.add('active');
+                engineText.innerText = 'RUNNING';
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'flex';
+                deviceSelect.disabled = true;
+                addLog('SYSTEM', 'Transcription engine initialized.');
+            } else {
+                engineIndicator.classList.remove('active');
+                engineText.innerText = 'IDLE';
+                startBtn.style.display = 'flex';
+                stopBtn.style.display = 'none';
+                deviceSelect.disabled = false;
+            }
+        });
+
+        socket.on('vad_status', (data) => {
+            if (data.active) {
+                vadDisplay.style.display = 'flex';
+                vizBars.forEach(bar => bar.classList.add('active'));
+            } else {
+                vadDisplay.style.display = 'none';
+                vizBars.forEach(bar => bar.classList.remove('active'));
+            }
+        });
+
+        socket.on('transcription', (data) => {
+            const cls = data.type + (data.confident === false ? ' conf-low' : '');
+            addLog(data.time, data.text, cls);
+            updatePanels(data);
+        });
+
+        startBtn.onclick = () => {
+            const devIdx = deviceSelect.value;
+            socket.emit('start_engine', {
+                device_index: devIdx !== "" ? parseInt(devIdx) : null
+            });
+        };
+
+        stopBtn.onclick = () => socket.emit('stop_engine');
+
+        // PTT Event Listeners
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !isPttActive && isEngineRunning) {
+                e.preventDefault();
+                isPttActive = true;
+                pttUi.style.display = 'block';
+                socket.emit('ptt_status', { active: true });
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'Space' && isPttActive) {
+                e.preventDefault();
+                isPttActive = false;
+                pttUi.style.display = 'none';
+                socket.emit('ptt_status', { active: false });
+            }
+        });
+
+        function addLog(time, text, type = '') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `
+                <div class="log-time">${time}</div>
+                <div class="log-content">${text}</div>
+            `;
+            feed.prepend(entry);
+        }
+
+        function updatePanels(data) {
+            const flash = (id) => {
+                const el = document.getElementById(id);
+                el.classList.add('flash');
+                setTimeout(() => el.classList.remove('flash'), 600);
+            };
+
+            if (data.text) {
+                document.querySelector('#panel-atc .out-panel-body').textContent = data.text;
+                flash('panel-atc');
+            }
+            if (data.readback) {
+                document.querySelector('#panel-pilot .out-panel-body').textContent = data.readback;
+                flash('panel-pilot');
+            }
+            if (data.command) {
+                const stars = data.command.split(' ')
+                    .filter(t => !['TL','TR','FH'].includes(t))
+                    .map(t => {
+                        if (t.match(/^A\d+$/)) {
+                            const alt = parseInt(t.slice(1));
+                            return alt >= 180 ? `A${String(alt).padStart(3,'0')}` : `D${String(alt).padStart(3,'0')}`;
+                        }
+                        return t;
+                    })
+                    .join('  ');
+                document.querySelector('#panel-cmd .out-panel-body').textContent = stars;
+                flash('panel-cmd');
+            }
+        }
+
+        // ── Facility selector ──
+        fetch('/facilities')
+            .then(r => r.json())
+            .then(packs => {
+                packs.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = `${p.id} — ${p.name}`;
+                    facilitySelect.appendChild(opt);
+                });
+            })
+            .catch(() => {});
+
+        facilitySelect.addEventListener('change', () => {
+            const fid = facilitySelect.value;
+            if (!fid) { facilityStatus.textContent = ''; return; }
+            facilityStatus.textContent = 'Loading…';
+            fetch(`/load_facility/${fid}`)
+                .then(r => r.json())
+                .then(d => {
+                    if (d.error) {
+                        facilityStatus.textContent = 'ERROR: ' + d.error;
+                    } else {
+                        facilityStatus.textContent = `✓ ${d.name}  |  ${d.fixes} fixes loaded`;
+                        addLog('SYSTEM', `Facility loaded: ${d.name}`, '');
+                    }
+                })
+                .catch(() => { facilityStatus.textContent = 'Load failed'; });
+        });
+
+        // ── VAD mode toggle ──
+        vadModeBtn.addEventListener('click', () => {
+            pttMode = !pttMode;
+            socket.emit('toggle_vad_mode', { ptt: pttMode });
+            if (pttMode) {
+                vadModeBadge.textContent = 'PTT';
+                vadModeBadge.style.color = 'var(--accent-green)';
+                vadModeBtn.textContent = 'SWITCH TO CONTINUOUS VAD';
+                pttHint.style.display = 'block';
+            } else {
+                vadModeBadge.textContent = 'CONTINUOUS';
+                vadModeBadge.style.color = 'var(--accent-blue)';
+                vadModeBtn.textContent = 'SWITCH TO PTT MODE';
+                pttHint.style.display = 'none';
+            }
+        });
+
+        socket.on('vad_mode_status', (data) => {
+            addLog('SYSTEM', `Input mode: ${data.ptt_mode ? 'PTT' : 'Continuous VAD'}`, '');
+        });
+
+        // ── TTS toggle ──
+        ttsBtn.addEventListener('click', () => {
+            ttsEnabled = !ttsEnabled;
+            socket.emit('toggle_tts', { enabled: ttsEnabled });
+            if (ttsEnabled) {
+                ttsBtn.style.background = '#58a6ff';
+                ttsBtn.style.color = '#fff';
+                ttsBtn.style.border = 'none';
+                ttsBtn.textContent = 'DISABLE READBACK';
+                ttsBadge.style.color = '#58a6ff';
+                ttsBadge.textContent = 'LIVE';
+            } else {
+                ttsBtn.style.background = '#21262d';
+                ttsBtn.style.color = 'var(--text-dim)';
+                ttsBtn.style.border = '1px solid var(--border-color)';
+                ttsBtn.textContent = 'ENABLE READBACK';
+                ttsBadge.style.color = 'var(--text-dim)';
+                ttsBadge.textContent = 'MUTED';
+            }
+        });
+
+        socket.on('tts_status', (data) => {
+            if (data.available === false) {
+                ttsBadge.textContent = 'UNAVAILABLE';
+                ttsBtn.disabled = true;
+                ttsBtn.title = 'pyttsx3 not installed on server';
+            }
+        });
+
+        // ── Injection toggle ──
+        injectBtn.addEventListener('click', () => {
+            injectionEnabled = !injectionEnabled;
+            socket.emit('toggle_injection', { enabled: injectionEnabled });
+            if (injectionEnabled) {
+                injectBtn.style.background = '#d29922';
+                injectBtn.style.color = '#fff';
+                injectBtn.style.border = 'none';
+                injectBtn.textContent = 'DISABLE INJECTION';
+                injectBadge.style.color = '#d29922';
+                injectBadge.textContent = 'ARMED';
+                injectInfo.style.display = 'block';
+            } else {
+                injectBtn.style.background = '#21262d';
+                injectBtn.style.color = 'var(--text-dim)';
+                injectBtn.style.border = '1px solid var(--border-color)';
+                injectBtn.textContent = 'ENABLE INJECTION';
+                injectBadge.style.color = 'var(--text-dim)';
+                injectBadge.textContent = 'DISABLED';
+            }
+        });
+
+        // ── Traffic state panel ──
+        const trafficFeed  = document.getElementById('traffic-feed');
+        const trafficCount = document.getElementById('traffic-count');
+
+        socket.on('state_update', (states) => {
+            const keys = Object.keys(states);
+            trafficCount.textContent = keys.length + ' TRACKED';
+            trafficFeed.innerHTML = '';
+            if (keys.length === 0) {
+                trafficFeed.innerHTML = '<p style="font-size:0.75rem;color:#30363d;">No aircraft tracked yet.</p>';
+                return;
+            }
+            keys.forEach(cs => {
+                const s   = states[cs];
+                const row = document.createElement('div');
+                row.className = 'traffic-row';
+
+                const fields = [];
+                if (s.hdg)  fields.push(`<div class="t-chip">HDG <span>${s.hdg}°</span></div>`);
+                if (s.alt)  fields.push(`<div class="t-chip">ALT <span>${s.alt}</span></div>`);
+                if (s.spd)  fields.push(`<div class="t-chip">SPD <span>${s.spd}</span></div>`);
+                if (s.sq)   fields.push(`<div class="t-chip">SQ <span>${s.sq}</span></div>`);
+                if (s.appr) fields.push(`<div class="t-chip">APPR <span>${s.appr}</span></div>`);
+                if (s.dct)  fields.push(`<div class="t-chip">DCT <span>${s.dct}</span></div>`);
+
+                row.innerHTML = `
+                    <div class="traffic-cs">${cs}</div>
+                    <div class="traffic-fields">${fields.join('') || '<span style="color:#30363d;font-size:0.65rem;">–</span>'}</div>
+                    <div class="traffic-ts">last: ${s.ts || '–'}</div>
+                `;
+                trafficFeed.appendChild(row);
+            });
+        });
+
+        socket.on('inject_status', (data) => {
+            if (data.available === false) {
+                injectBadge.textContent = 'UNAVAILABLE';
+                injectBtn.disabled = true;
+                injectBtn.title = 'pyautogui not installed on server';
+                return;
+            }
+            if (data.count !== undefined) {
+                injectCount.textContent = data.count;
+            }
+            if (data.last) {
+                addLog('INJECT', '→ ' + data.last, 'pilot');
+            }
+            if (data.skipped) {
+                addLog('INJECT', 'SKIPPED — ' + data.skipped, 'conf-low');
+            }
+            if (data.error) {
+                addLog('INJECT', 'ERROR: ' + data.error, 'atc');
+                // auto-disarm on error
+                injectionEnabled = false;
+                injectBtn.style.background = '#21262d';
+                injectBtn.style.color = 'var(--text-dim)';
+                injectBtn.style.border = '1px solid var(--border-color)';
+                injectBtn.textContent = 'ENABLE INJECTION';
+                injectBadge.style.color = '#f85149';
+                injectBadge.textContent = 'ABORTED';
+            }
+        });
+    </script>
+</body>
+</html>

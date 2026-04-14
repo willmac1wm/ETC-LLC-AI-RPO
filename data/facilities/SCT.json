@@ -1,0 +1,47 @@
+{
+  "facility_id": "SCT",
+  "facility_name": "Southern California TRACON",
+  "airports": ["KLAX", "KSNA", "KONT", "KBUR", "KVNY", "KLGB", "KTOA"],
+  "runways": {
+    "KLAX": ["6L", "6R", "24L", "24R", "25L", "25R", "7L", "7R"],
+    "KSNA": ["20L", "20R", "2L", "2R"],
+    "KONT": ["26L", "26R", "8L", "8R"],
+    "KBUR": ["8", "15", "26", "33"]
+  },
+  "approaches": {
+    "KLAX": [
+      {"id": "ILS06L",  "type": "ILS",  "runway": "6L",  "stars_code": "CI06L"},
+      {"id": "ILS06R",  "type": "ILS",  "runway": "6R",  "stars_code": "CI06R"},
+      {"id": "ILS24L",  "type": "ILS",  "runway": "24L", "stars_code": "CI24L"},
+      {"id": "ILS24R",  "type": "ILS",  "runway": "24R", "stars_code": "CI24R"},
+      {"id": "RNAV25L", "type": "RNAV", "runway": "25L", "stars_code": "CR25L"},
+      {"id": "RNAV25R", "type": "RNAV", "runway": "25R", "stars_code": "CR25R"}
+    ],
+    "KSNA": [
+      {"id": "ILS20R",  "type": "ILS",  "runway": "20R", "stars_code": "CI20R"},
+      {"id": "RNAV20L", "type": "RNAV", "runway": "20L", "stars_code": "CR20L"}
+    ],
+    "KONT": [
+      {"id": "ILS26L",  "type": "ILS",  "runway": "26L", "stars_code": "CI26L"},
+      {"id": "ILS26R",  "type": "ILS",  "runway": "26R", "stars_code": "CI26R"}
+    ]
+  },
+  "fixes": [
+    "DARTS", "IRONS", "SYMON", "DAHJR", "SADDE", "BASET", "KONZL",
+    "REEDR", "HOLTZ", "CATLY", "WLOOP", "PIRUE", "BURGL", "SLI",
+    "SMO", "VNY", "SXC", "PDZ", "TNP", "DAG", "FIM", "GMN"
+  ],
+  "frequencies": {
+    "SCT Approach East":  "124.3",
+    "SCT Approach West":  "135.5",
+    "LAX Ground":         "121.65",
+    "LAX Tower":          "133.9",
+    "SNA Tower":          "119.9",
+    "ONT Tower":          "118.7"
+  },
+  "altitude_limits": {
+    "floor": 2000,
+    "ceiling": 18000
+  },
+  "notes": "Class B airspace. LAX noise abatement routes in effect 0000-0700L."
+}

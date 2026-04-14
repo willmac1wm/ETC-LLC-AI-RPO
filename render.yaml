@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: atc-ai-rpo-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: standard          # 1 GB RAM — needed for Whisper base model
+    region: ohio            # us-east-2 — close to FAA facilities on east coast
+    envVars:
+      - key: API_KEY
+        generateValue: true   # Render auto-generates a secure key
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: "*"            # Change to your Vercel/Netlify URL after first deploy
+      - key: PORT
+        value: "8766"
+      - key: CLOUD_MODEL
+        value: openai/whisper-base.en
+    healthCheckPath: /api/health
+    autoDeploy: true

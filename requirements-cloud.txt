@@ -1,0 +1,14 @@
+# Cloud API server dependencies — no hardware (mic/keyboard/TTS) packages.
+# Used by Dockerfile, Railway, and Render deployments.
+
+torch
+transformers
+accelerate
+safetensors
+numpy
+scipy
+flask
+flask-socketio
+flask-cors
+eventlet
+python-dotenv

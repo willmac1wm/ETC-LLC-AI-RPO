@@ -1,0 +1,54 @@
+{
+  "facility_id": "PCT",
+  "facility_name": "Potomac TRACON",
+  "airports": ["KDCA", "KIAD", "KBWI", "KBOF"],
+  "runways": {
+    "KDCA": ["1", "4", "15", "19", "22", "33"],
+    "KIAD": ["1C", "1L", "1R", "19C", "19L", "19R", "12", "30"],
+    "KBWI": ["10", "15L", "15R", "28", "33L", "33R"]
+  },
+  "approaches": {
+    "KDCA": [
+      {"id": "ILS01",   "type": "ILS",  "runway": "1",   "stars_code": "CI01"},
+      {"id": "ILS19",   "type": "ILS",  "runway": "19",  "stars_code": "CI19"},
+      {"id": "RNAV04",  "type": "RNAV", "runway": "4",   "stars_code": "CR04"},
+      {"id": "VIS15",   "type": "VIS",  "runway": "15",  "stars_code": "CV15"}
+    ],
+    "KIAD": [
+      {"id": "ILS01L",  "type": "ILS",  "runway": "1L",  "stars_code": "CI01L"},
+      {"id": "ILS01C",  "type": "ILS",  "runway": "1C",  "stars_code": "CI01C"},
+      {"id": "ILS01R",  "type": "ILS",  "runway": "1R",  "stars_code": "CI01R"},
+      {"id": "ILS19L",  "type": "ILS",  "runway": "19L", "stars_code": "CI19L"},
+      {"id": "ILS19C",  "type": "ILS",  "runway": "19C", "stars_code": "CI19C"},
+      {"id": "ILS19R",  "type": "ILS",  "runway": "19R", "stars_code": "CI19R"},
+      {"id": "RNAV12",  "type": "RNAV", "runway": "12",  "stars_code": "CR12"}
+    ],
+    "KBWI": [
+      {"id": "ILS10",   "type": "ILS",  "runway": "10",  "stars_code": "CI10"},
+      {"id": "ILS15R",  "type": "ILS",  "runway": "15R", "stars_code": "CI15R"},
+      {"id": "ILS28",   "type": "ILS",  "runway": "28",  "stars_code": "CI28"},
+      {"id": "ILS33L",  "type": "ILS",  "runway": "33L", "stars_code": "CI33L"},
+      {"id": "RNAV33R", "type": "RNAV", "runway": "33R", "stars_code": "CR33R"}
+    ]
+  },
+  "fixes": [
+    "FLUKY", "SWANN", "WATEA", "RAVNN", "BIGGZ", "DOXEE", "ADYOS",
+    "TRISH", "PALEO", "WOOLY", "WEDGE", "DEANS", "BUNTS", "WHINO",
+    "TERPY", "OTTTO", "KEPKO", "JCOBY", "ESL", "MRB", "OTT", "HGR"
+  ],
+  "frequencies": {
+    "PCT Approach North": "124.65",
+    "PCT Approach South": "119.85",
+    "DCA Ground":         "121.65",
+    "DCA Tower":          "119.1",
+    "IAD Ground":         "121.95",
+    "IAD Tower":          "120.75",
+    "BWI Ground":         "121.9",
+    "BWI Tower":          "119.7"
+  },
+  "altitude_limits": {
+    "floor": 1500,
+    "ceiling": 18000
+  },
+  "notes": "Special flight rules area (SFRA) around Washington DC. FRZ within 15nm of DCA."
+}

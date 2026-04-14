@@ -1,0 +1,16 @@
+torch
+transformers
+sounddevice
+webrtcvad
+numpy
+scipy
+pyttsx3
+flask
+flask-socketio
+flask-cors
+eventlet
+pathlib
+accelerate
+safetensors
+pyautogui
+python-dotenv

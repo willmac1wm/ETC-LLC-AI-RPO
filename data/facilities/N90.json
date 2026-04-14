@@ -1,0 +1,55 @@
+{
+  "facility_id": "N90",
+  "facility_name": "New York TRACON",
+  "airports": ["KJFK", "KLGA", "KEWR", "KTEB", "KHPN"],
+  "runways": {
+    "KJFK": ["4L", "4R", "13L", "13R", "22L", "22R", "31L", "31R"],
+    "KLGA": ["4", "13", "22", "31"],
+    "KEWR": ["4L", "4R", "11", "22L", "22R", "29"]
+  },
+  "approaches": {
+    "KJFK": [
+      {"id": "ILS04L",  "type": "ILS",  "runway": "4L",  "stars_code": "CI04L"},
+      {"id": "ILS04R",  "type": "ILS",  "runway": "4R",  "stars_code": "CI04R"},
+      {"id": "ILS13L",  "type": "ILS",  "runway": "13L", "stars_code": "CI13L"},
+      {"id": "ILS22L",  "type": "ILS",  "runway": "22L", "stars_code": "CI22L"},
+      {"id": "ILS22R",  "type": "ILS",  "runway": "22R", "stars_code": "CI22R"},
+      {"id": "ILS31L",  "type": "ILS",  "runway": "31L", "stars_code": "CI31L"},
+      {"id": "ILS31R",  "type": "ILS",  "runway": "31R", "stars_code": "CI31R"},
+      {"id": "RNAV04L", "type": "RNAV", "runway": "4L",  "stars_code": "CR04L"},
+      {"id": "VIS22L",  "type": "VIS",  "runway": "22L", "stars_code": "CV22L"}
+    ],
+    "KLGA": [
+      {"id": "ILS04",   "type": "ILS",  "runway": "4",   "stars_code": "CI04"},
+      {"id": "ILS13",   "type": "ILS",  "runway": "13",  "stars_code": "CI13"},
+      {"id": "ILS22",   "type": "ILS",  "runway": "22",  "stars_code": "CI22"},
+      {"id": "RNAV31",  "type": "RNAV", "runway": "31",  "stars_code": "CR31"}
+    ],
+    "KEWR": [
+      {"id": "ILS04L",  "type": "ILS",  "runway": "4L",  "stars_code": "CI04L"},
+      {"id": "ILS22L",  "type": "ILS",  "runway": "22L", "stars_code": "CI22L"},
+      {"id": "ILS22R",  "type": "ILS",  "runway": "22R", "stars_code": "CI22R"},
+      {"id": "ILS29",   "type": "ILS",  "runway": "29",  "stars_code": "CI29"}
+    ]
+  },
+  "fixes": [
+    "MERIT", "KEYED", "GREKI", "BIGGY", "HAPIE", "CAMRN", "COVEY",
+    "LANNA", "ROBER", "DIXIE", "PARCH", "ELIOT", "SHIPP", "BEARS",
+    "BETTE", "CCC", "DPK", "FJC", "COATE", "PENNS", "NEWEL"
+  ],
+  "frequencies": {
+    "N90 Approach North": "119.2",
+    "N90 Approach South": "120.8",
+    "JFK Ground":         "121.9",
+    "JFK Tower":          "119.1",
+    "LGA Ground":         "121.7",
+    "LGA Tower":          "118.7",
+    "EWR Ground":         "121.8",
+    "EWR Tower":          "127.85"
+  },
+  "altitude_limits": {
+    "floor": 1500,
+    "ceiling": 17000
+  },
+  "notes": "Class B airspace. JFK noise abatement: no turns below 1500 AGL."
+}
