@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATC AI RPO | ETC-LLC</title>
+    <!-- API URL is injected by Netlify env var at build time via _redirects,
+         or set manually in the CONFIG block below for quick demos -->
+    <script>
+      // ── CONFIG ────────────────────────────────────────────────────────────
+      // Set REACT_APP_API_URL (or ATC_API_URL) as a Netlify env var, OR
+      // paste your Render URL here directly for a quick share:
+      window.ATC_API_URL = "%%ATC_API_URL%%";   // replaced by Netlify at deploy
+      if (!window.ATC_API_URL || window.ATC_API_URL === "%%ATC_API_URL%%") {
+        window.ATC_API_URL = "";   // blank = try same-host (local dev)
+      }
+      // ─────────────────────────────────────────────────────────────────────
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: rgba(22, 27, 34, 0.7);
+            --accent-green: #2ea043;
+            --accent-blue: #58a6ff;
+            --accent-yellow: #d29922;
+            --text-main: #c9d1d9;
+            --text-dim: #8b949e;
+            --border-color: rgba(240, 246, 252, 0.1);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .radar-grid {
+            position: fixed; top:0; left:0; width:100%; height:100%;
+            background-image:
+                radial-gradient(circle at 50% 50%, rgba(46,160,67,.05) 0%, transparent 70%),
+                linear-gradient(rgba(240,246,252,.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(240,246,252,.02) 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+            z-index:-1;
+        }
+        header {
+            padding: 1.25rem 2rem;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(13,17,23,.9);
+            backdrop-filter: blur(10px);
+        }
+        .logo-text h1 { font-size:1.3rem; font-weight:600; color:#fff; }
+        .logo-text p  { font-size:.7rem; color:var(--accent-green); font-family:'JetBrains Mono',monospace; text-transform:uppercase; }
+        .status-panel { display:flex; gap:1.5rem; }
+        .status-item  { display:flex; align-items:center; gap:.5rem; font-size:.8rem; color:var(--text-dim); }
+        .indicator    { width:8px; height:8px; border-radius:50%; background:#30363d; }
+        .indicator.active { background:var(--accent-green); box-shadow:0 0 10px var(--accent-green); }
+        @keyframes pulse-red {
+            0%   { background:#f85149; box-shadow:0 0 0 0 rgba(248,81,73,.7); }
+            70%  { background:#f85149; box-shadow:0 0 0 10px rgba(248,81,73,0); }
+            100% { background:#f85149; box-shadow:0 0 0 0 rgba(248,81,73,0); }
+        }
+        .indicator.pulse { animation: pulse-red 1s infinite; }
+        .output-panels {
+            display:grid; grid-template-columns:1fr 1fr 1fr;
+            gap:1rem; padding:.75rem 2rem;
+            border-bottom:1px solid var(--border-color);
+            background:rgba(13,17,23,.6);
+        }
+        .out-panel { background:var(--card-bg); border:1px solid var(--border-color); border-radius:12px; overflow:hidden; transition:border-color .3s; }
+        .out-panel.flash { border-color:var(--accent-green); }
+        .out-panel-hdr { padding:.4rem .9rem; background:rgba(240,246,252,.04); border-bottom:1px solid var(--border-color); font-size:.6rem; letter-spacing:2px; color:#8b949e; display:flex; justify-content:space-between; }
+        .out-panel-body { padding:.75rem .9rem; min-height:48px; font-size:.9rem; line-height:1.5; }
+        #panel-atc   .out-panel-body { color:#d29922; font-weight:600; }
+        #panel-pilot .out-panel-body { color:#58a6ff; }
+        #panel-cmd   .out-panel-body { color:#3fb950; font-family:'JetBrains Mono',monospace; font-size:1rem; letter-spacing:2px; font-weight:700; }
+        .panel-placeholder { color:#30363d; font-size:.8rem; }
+        main {
+            flex:1; display:grid; grid-template-columns:1fr 380px;
+            gap:1.5rem; padding:1.5rem 2rem; overflow:hidden;
+        }
+        .transcript-container {
+            background:var(--card-bg); border:1px solid var(--border-color);
+            border-radius:16px; display:flex; flex-direction:column; overflow:hidden;
+            backdrop-filter:blur(20px);
+        }
+        .transcript-header {
+            padding:.75rem 1.5rem; background:rgba(240,246,252,.05);
+            border-bottom:1px solid var(--border-color);
+            display:flex; justify-content:space-between; align-items:center;
+        }
+        .transcript-feed {
+            flex:1; padding:1rem 1.5rem; overflow-y:auto;
+            display:flex; flex-direction:column; gap:.75rem;
+        }
+        .log-entry { display:grid; grid-template-columns:80px 1fr; gap:1rem; padding:.6rem; border-radius:8px; }
+        .log-entry:hover { background:rgba(240,246,252,.03); }
+        .log-time    { font-family:'JetBrains Mono',monospace; font-size:.75rem; color:var(--text-dim); padding-top:2px; }
+        .log-content { font-size:.9rem; line-height:1.5; }
+        .log-entry.atc    .log-content { color:var(--accent-yellow); font-weight:600; }
+        .log-entry.pilot  .log-content { color:var(--accent-blue); }
+        .conf-low { opacity:.55; border-left:3px solid #f85149; padding-left:.5rem; }
+        .control-panel { display:flex; flex-direction:column; gap:1rem; overflow-y:auto; }
+        .stats-card {
+            background:var(--card-bg); border:1px solid var(--border-color);
+            border-radius:16px; padding:1.25rem;
+            display:flex; flex-direction:column; gap:.75rem;
+        }
+        .stats-card h3 { font-size:.8rem; letter-spacing:2px; color:var(--text-dim); }
+        .btn {
+            padding:.8rem; border-radius:12px; border:none; cursor:pointer;
+            font-weight:600; font-family:'Outfit',sans-serif; font-size:.85rem;
+            transition:all .2s; display:flex; align-items:center; justify-content:center; gap:.75rem;
+        }
+        .btn-primary { background:var(--accent-green); color:#fff; }
+        .btn-primary:hover { background:#3fb950; transform:translateY(-2px); }
+        .btn-stop { background:#f85149; color:#fff; display:none; }
+        select {
+            background:var(--card-bg); color:var(--text-main);
+            border:1px solid var(--border-color); padding:.5rem;
+            border-radius:8px; width:100%;
+        }
+        #ptt-ui {
+            position:fixed; top:1.5rem; left:50%; transform:translateX(-50%);
+            background:rgba(248,81,73,.9); color:#fff; padding:.4rem 2rem;
+            border-radius:20px; font-weight:800; letter-spacing:2px; display:none;
+            z-index:1000; box-shadow:0 0 30px rgba(248,81,73,.5);
+            animation: pulse-red 1s infinite;
+        }
+        /* Traffic rows */
+        .traffic-row {
+            background:rgba(240,246,252,.03); border:1px solid var(--border-color);
+            border-radius:8px; padding:.5rem .75rem;
+            display:grid; grid-template-columns:90px 1fr; gap:.3rem;
+            font-family:'JetBrains Mono',monospace; font-size:.75rem;
+        }
+        .traffic-cs { color:#58a6ff; font-weight:700; font-size:.8rem; align-self:center; }
+        .traffic-fields { display:flex; flex-wrap:wrap; gap:.3rem; }
+        .t-chip { background:rgba(240,246,252,.06); border-radius:4px; padding:1px 6px; font-size:.65rem; color:var(--text-dim); }
+        .t-chip span { color:var(--text-main); }
+        .traffic-ts { grid-column:1/-1; font-size:.6rem; color:#30363d; }
+        /* API URL banner */
+        #api-banner {
+            background:rgba(88,166,255,.08); border-bottom:1px solid rgba(88,166,255,.2);
+            padding:.4rem 2rem; font-size:.7rem; color:#58a6ff;
+            font-family:'JetBrains Mono',monospace; display:flex; align-items:center; gap:.75rem;
+        }
+        #api-banner.error { background:rgba(248,81,73,.08); border-color:rgba(248,81,73,.2); color:#f85149; }
+        .ptt-hint { font-size:.6rem; color:var(--text-dim); text-align:center; }
+    </style>
+</head>
+<body>
+<div class="radar-grid"></div>
+
+<!-- API connection banner -->
+<div id="api-banner">
+    <span id="api-banner-dot" class="indicator"></span>
+    <span id="api-banner-text">Connecting to ATC AI RPO API…</span>
+</div>
+
+<header>
+    <div class="logo-text">
+        <h1>ATC-WHISPER</h1>
+        <p>ETC-LLC · AI RPO System</p>
+    </div>
+    <div class="status-panel">
+        <div class="status-item">
+            <span id="server-indicator" class="indicator"></span>
+            SERVER: <span id="server-text">OFFLINE</span>
+        </div>
+        <div class="status-item">
+            <span id="engine-indicator" class="indicator"></span>
+            ENGINE: <span id="engine-text">IDLE</span>
+        </div>
+        <div class="status-item">
+            <span id="mic-indicator" class="indicator"></span>
+            VOICE READY
+        </div>
+    </div>
+</header>
+
+<div id="ptt-ui">TRANSMITTING…</div>
+
+<!-- Three output panels -->
+<div class="output-panels">
+    <div class="out-panel" id="panel-atc">
+        <div class="out-panel-hdr"><span>🎙 ATC SPOKEN COMMAND</span><span>CONTROLLER TX</span></div>
+        <div class="out-panel-body"><span class="panel-placeholder">Awaiting transmission…</span></div>
+    </div>
+    <div class="out-panel" id="panel-pilot">
+        <div class="out-panel-hdr"><span>✈ PILOT READBACK</span><span>AI RESPONSE</span></div>
+        <div class="out-panel-body"><span class="panel-placeholder">Awaiting transmission…</span></div>
+    </div>
+    <div class="out-panel" id="panel-cmd">
+        <div class="out-panel-hdr"><span>⌨ KEYBOARD COMMAND</span><span>STARS FORMAT</span></div>
+        <div class="out-panel-body"><span class="panel-placeholder">Awaiting transmission…</span></div>
+    </div>
+</div>
+
+<main>
+    <!-- Phraseology log -->
+    <section class="transcript-container">
+        <div class="transcript-header">
+            <h3>PHRASEOLOGY LOG</h3>
+            <span class="status-item" id="vad-display" style="display:none;">
+                <span class="indicator active pulse"></span> RECEIVING…
+            </span>
+        </div>
+        <div class="transcript-feed" id="feed">
+            <div class="log-entry"><div class="log-time">SYSTEM</div><div class="log-content">Connecting…</div></div>
+        </div>
+    </section>
+
+    <!-- Controls -->
+    <section class="control-panel">
+
+        <!-- Demo: type a command manually (no mic needed for FAA demo) -->
+        <div class="stats-card">
+            <h3>DEMO — MANUAL INPUT</h3>
+            <textarea id="demo-input" rows="2"
+                style="background:var(--card-bg);color:var(--text-main);border:1px solid var(--border-color);border-radius:8px;padding:.5rem;font-family:inherit;font-size:.85rem;resize:vertical;width:100%;"
+                placeholder="delta 452 turn right heading 180 descend 3000"></textarea>
+            <button id="demo-btn" class="btn btn-primary">PARSE COMMAND</button>
+        </div>
+
+        <!-- Facility -->
+        <div class="stats-card">
+            <h3>FACILITY</h3>
+            <select id="facility-select"><option value="">— None loaded —</option></select>
+            <div id="facility-status" style="font-size:.65rem;color:var(--text-dim);font-family:'JetBrains Mono',monospace;"></div>
+        </div>
+
+        <!-- Traffic -->
+        <div class="stats-card" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <h3>TRAFFIC</h3>
+                <span id="traffic-count" style="font-size:.65rem;font-family:'JetBrains Mono',monospace;color:var(--text-dim);">0 TRACKED</span>
+            </div>
+            <div id="traffic-feed" style="overflow-y:auto;display:flex;flex-direction:column;gap:.4rem;flex:1;margin-top:.5rem;">
+                <p style="font-size:.75rem;color:#30363d;">No aircraft tracked.</p>
+            </div>
+        </div>
+
+        <!-- Live engine (requires local server) -->
+        <div class="stats-card">
+            <h3>LIVE ENGINE</h3>
+            <select id="device-select"><option value="">Default Microphone</option></select>
+            <button id="start-btn" class="btn btn-primary" style="margin-top:.5rem;">START ENGINE</button>
+            <button id="stop-btn" class="btn btn-stop" style="margin-top:.5rem;">STOP ENGINE</button>
+            <p class="ptt-hint" id="ptt-hint" style="margin-top:.5rem;">HOLD [SPACE BAR] TO TRANSMIT</p>
+        </div>
+
+    </section>
+</main>
+
+<script>
+// ── Connect to API ────────────────────────────────────────────────────────────
+const API_URL = window.ATC_API_URL || location.origin;
+const socket  = io(API_URL, { transports: ['websocket','polling'] });
+
+const feed          = document.getElementById('feed');
+const startBtn      = document.getElementById('start-btn');
+const stopBtn       = document.getElementById('stop-btn');
+const deviceSelect  = document.getElementById('device-select');
+const pttUi         = document.getElementById('ptt-ui');
+const apiBanner     = document.getElementById('api-banner');
+const apiBannerDot  = document.getElementById('api-banner-dot');
+const apiBannerText = document.getElementById('api-banner-text');
+const demoInput     = document.getElementById('demo-input');
+const demoBtn       = document.getElementById('demo-btn');
+const facilitySelect = document.getElementById('facility-select');
+const facilityStatus = document.getElementById('facility-status');
+const trafficFeed   = document.getElementById('traffic-feed');
+const trafficCount  = document.getElementById('traffic-count');
+
+let isPttActive    = false;
+let isEngineRunning = false;
+
+// ── Socket events ─────────────────────────────────────────────────────────────
+socket.on('connect', () => {
+    document.getElementById('server-indicator').classList.add('active');
+    document.getElementById('server-text').innerText = 'ONLINE';
+    apiBannerDot.classList.add('active');
+    apiBannerText.textContent = `Connected · ${API_URL}`;
+    addLog('SYSTEM', `Connected to ${API_URL}`);
+
+    // Load facility list
+    fetch(`${API_URL}/facilities`).then(r => r.json()).then(packs => {
+        packs.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id; opt.textContent = `${p.id} — ${p.name}`;
+            facilitySelect.appendChild(opt);
+        });
+    }).catch(() => {});
+});
+
+socket.on('connect_error', () => {
+    apiBanner.classList.add('error');
+    apiBannerText.textContent = `Cannot reach API at ${API_URL} — check your Render deployment`;
+});
+
+socket.on('status', (data) => {
+    isEngineRunning = data.engine_running;
+    if (data.devices) {
+        deviceSelect.innerHTML = '<option value="">Default Microphone</option>';
+        data.devices.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.index; opt.textContent = d.name;
+            deviceSelect.appendChild(opt);
+        });
+    }
+    if (isEngineRunning) {
+        document.getElementById('engine-indicator').classList.add('active');
+        document.getElementById('engine-text').innerText = 'RUNNING';
+        startBtn.style.display = 'none'; stopBtn.style.display = 'flex';
+    } else {
+        document.getElementById('engine-indicator').classList.remove('active');
+        document.getElementById('engine-text').innerText = 'IDLE';
+        startBtn.style.display = 'flex'; stopBtn.style.display = 'none';
+    }
+});
+
+socket.on('vad_status', (data) => {
+    document.getElementById('vad-display').style.display = data.active ? 'flex' : 'none';
+});
+
+socket.on('transcription', (data) => {
+    const cls = 'atc' + (data.confident === false ? ' conf-low' : '');
+    addLog(data.time, data.text, cls);
+    updatePanels(data);
+});
+
+// Also handle result events from the API WS (parse_text)
+socket.on('result', (data) => {
+    addLog(data.ts || '—', data.transcript || '', 'atc' + (data.confident === false ? ' conf-low' : ''));
+    updatePanels({
+        text: data.transcript, command: data.command,
+        readback: data.readback, confident: data.confident,
+        stars_keys: data.stars_keys,
+    });
+});
+
+socket.on('state_update', (states) => {
+    const keys = Object.keys(states);
+    trafficCount.textContent = keys.length + ' TRACKED';
+    trafficFeed.innerHTML = '';
+    if (!keys.length) {
+        trafficFeed.innerHTML = '<p style="font-size:.75rem;color:#30363d;">No aircraft tracked.</p>';
+        return;
+    }
+    keys.forEach(cs => {
+        const s = states[cs];
+        const chips = [
+            s.hdg  ? `<div class="t-chip">HDG <span>${s.hdg}°</span></div>` : '',
+            s.alt  ? `<div class="t-chip">ALT <span>${s.alt}</span></div>`  : '',
+            s.spd  ? `<div class="t-chip">SPD <span>${s.spd}</span></div>`  : '',
+            s.sq   ? `<div class="t-chip">SQ <span>${s.sq}</span></div>`    : '',
+            s.appr ? `<div class="t-chip">APPR <span>${s.appr}</span></div>` : '',
+            s.dct  ? `<div class="t-chip">DCT <span>${s.dct}</span></div>`  : '',
+        ].join('');
+        const row = document.createElement('div');
+        row.className = 'traffic-row';
+        row.innerHTML = `<div class="traffic-cs">${cs}</div>
+            <div class="traffic-fields">${chips || '<span style="color:#30363d;font-size:.65rem;">–</span>'}</div>
+            <div class="traffic-ts">last: ${s.ts || '–'}</div>`;
+        trafficFeed.appendChild(row);
+    });
+});
+
+// ── Demo: parse typed text ────────────────────────────────────────────────────
+demoBtn.addEventListener('click', async () => {
+    const text = demoInput.value.trim();
+    if (!text) return;
+    demoBtn.disabled = true; demoBtn.textContent = 'PARSING…';
+    try {
+        const res = await fetch(`${API_URL}/api/parse_text`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text }),
+        });
+        const data = await res.json();
+        if (data.error) { addLog('ERROR', data.error, 'atc'); return; }
+        addLog(data.ts, data.transcript, 'atc' + (data.confident === false ? ' conf-low' : ''));
+        updatePanels({ text: data.transcript, command: data.command, readback: data.readback, stars_keys: data.stars_keys });
+        socket.emit('state_update_request'); // ask server to broadcast latest state
+    } catch (e) {
+        addLog('ERROR', e.message, 'atc');
+    } finally {
+        demoBtn.disabled = false; demoBtn.textContent = 'PARSE COMMAND';
+    }
+});
+demoInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); demoBtn.click(); } });
+
+// ── Facility ──────────────────────────────────────────────────────────────────
+facilitySelect.addEventListener('change', () => {
+    const fid = facilitySelect.value;
+    if (!fid) { facilityStatus.textContent = ''; return; }
+    facilityStatus.textContent = 'Loading…';
+    fetch(`${API_URL}/load_facility/${fid}`)
+        .then(r => r.json()).then(d => {
+            facilityStatus.textContent = d.error ? 'ERROR: ' + d.error : `✓ ${d.name}  |  ${d.fixes} fixes`;
+            addLog('SYSTEM', `Facility: ${d.name || d.error}`);
+        }).catch(() => { facilityStatus.textContent = 'Load failed'; });
+});
+
+// ── Live engine controls ──────────────────────────────────────────────────────
+startBtn.onclick = () => socket.emit('start_engine', { device_index: deviceSelect.value ? parseInt(deviceSelect.value) : null });
+stopBtn.onclick  = () => socket.emit('stop_engine');
+
+window.addEventListener('keydown', e => {
+    if (e.code === 'Space' && !isPttActive && isEngineRunning) {
+        e.preventDefault(); isPttActive = true;
+        pttUi.style.display = 'block';
+        socket.emit('ptt_status', { active: true });
+    }
+});
+window.addEventListener('keyup', e => {
+    if (e.code === 'Space' && isPttActive) {
+        e.preventDefault(); isPttActive = false;
+        pttUi.style.display = 'none';
+        socket.emit('ptt_status', { active: false });
+    }
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function addLog(time, text, type = '') {
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+    entry.innerHTML = `<div class="log-time">${time}</div><div class="log-content">${text}</div>`;
+    feed.prepend(entry);
+}
+
+function updatePanels(data) {
+    const flash = id => {
+        const el = document.getElementById(id);
+        el.classList.add('flash');
+        setTimeout(() => el.classList.remove('flash'), 600);
+    };
+    if (data.text) {
+        document.querySelector('#panel-atc .out-panel-body').textContent = data.text;
+        flash('panel-atc');
+    }
+    if (data.readback) {
+        document.querySelector('#panel-pilot .out-panel-body').textContent = data.readback;
+        flash('panel-pilot');
+    }
+    // Show STARS keystrokes from stars_keys array OR derive from command string
+    const keys = data.stars_keys || [];
+    if (keys.length) {
+        document.querySelector('#panel-cmd .out-panel-body').textContent = keys.join('  ');
+        flash('panel-cmd');
+    } else if (data.command) {
+        const stars = data.command.split(' ')
+            .filter(t => !['TL','TR','FH'].includes(t))
+            .map(t => t.startsWith('A') && !t.startsWith('APPR') ?
+                (parseInt(t.slice(1)) >= 180 ? `A${t.slice(1).padStart(3,'0')}` : `D${t.slice(1).padStart(3,'0')}`) : t)
+            .join('  ');
+        document.querySelector('#panel-cmd .out-panel-body').textContent = stars;
+        flash('panel-cmd');
+    }
+}
+</script>
+</body>
+</html>
