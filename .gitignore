@@ -52,3 +52,6 @@ backups/
 
 # Local Netlify folder
 .netlify
+
+# Local AI assistant workspaces
+.claude/
