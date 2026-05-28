@@ -49,3 +49,6 @@ Thumbs.db
 
 # ── Backups ──────────────────────────────────────────────────────────────────
 backups/
+
+# Local Netlify folder
+.netlify
