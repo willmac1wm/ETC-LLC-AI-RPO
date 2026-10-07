@@ -23,25 +23,27 @@ import logging
 import argparse
 import threading
 import datetime
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import sounddevice as sd
 import webrtcvad
 from pathlib import Path
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
-BASE_DIR  = Path.home() / "Desktop" / "ETC-LLC-AI-RPO"
+# ─── Paths ───────────────────────────────────────────────────────────────────
+BASE_DIR = Path.home() / "Desktop" / "ETC-LLC-AI-RPO"
 MODEL_DIR = BASE_DIR / "models" / "atc-whisper"
-LOG_DIR   = BASE_DIR / "logs"
+LOG_DIR = BASE_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 # ─── Audio Settings ───────────────────────────────────────────────────────────
-SAMPLE_RATE        = 16000   # Hz — Whisper expects 16kHz
-CHANNELS           = 1
-CHUNK_MS           = 30      # VAD frame size (10, 20, or 30ms only)
-CHUNK_SIZE         = int(SAMPLE_RATE * CHUNK_MS / 1000)
-VAD_AGGRESSIVENESS = 2       # 0 (least) – 3 (most aggressive filtering)
-SILENCE_CHUNKS     = 25      # silent frames before end-of-transmission (~750ms)
-MIN_SPEECH_CHUNKS  = 10      # ignore clips shorter than this (~300ms)
+SAMPLE_RATE = 16000  # Hz — Whisper expects 16kHz
+CHANNELS = 1
+CHUNK_MS = 30  # VAD frame size (10, 20, or 30ms only)
+CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_MS / 1000)
+VAD_AGGRESSIVENESS = 2  # 0 (least) – 3 (most aggressive filtering)
+SILENCE_CHUNKS = 25  # silent frames before end-of-transmission (~750ms)
+MIN_SPEECH_CHUNKS = 10  # ignore clips shorter than this (~300ms)
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 log_file = LOG_DIR / f"atc_rpo_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -58,22 +60,22 @@ logger = logging.getLogger(__name__)
 
 # ─── Colours for terminal output ──────────────────────────────────────────────
 class C:
-    HEADER  = "\033[95m"
-    BLUE    = "\033[94m"
-    GREEN   = "\033[92m"
-    YELLOW  = "\033[93m"
-    RED     = "\033[91m"
-    BOLD    = "\033[1m"
-    END     = "\033[0m"
+    HEADER = "\033[95m"
+    BLUE = "\033[94m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    BOLD = "\033[1m"
+    END = "\033[0m"
 
 
 def banner():
     print(f"""{C.BOLD}{C.BLUE}
-╔══════════════════════════════════════════════════════╗
-║          ATC-RPO  –  ETC-LLC AI System               ║
-║    Real-time Air Traffic Control Transcription       ║
-╚══════════════════════════════════════════════════════╝{C.END}
-""")
+ ╔══════════════════════════════════════════════════════╗
+ ║          ATC-RPO  –  ETC-LLC AI System               ║
+ ║    Real-time Air Traffic Control Transcription       ║
+ ╚══════════════════════════════════════════════════════╝{C.END}
+ """)
 
 
 # ─── Model loader ─────────────────────────────────────────────────────────────
@@ -120,17 +122,19 @@ def load_model(model_dir: str):
     return asr_pipe
 
 
-# ─── Transcriber ──────────────────────────────────────────────────────────────
+# ─── Transcriber ─────────────────────────────────────────────────────────────
 class ATCTranscriber:
     def __init__(self, model_dir, use_tts=False, device_index=None):
-        self.model_dir    = model_dir
-        self.use_tts      = use_tts
+        self.model_dir = model_dir
+        self.use_tts = use_tts
         self.device_index = device_index
-        self.audio_queue  = queue.Queue()
-        self.running      = False
-        self.vad          = webrtcvad.Vad(VAD_AGGRESSIVENESS)
-        self.tts_engine   = None
-        self.pipe         = load_model(model_dir)
+        self.audio_queue = queue.Queue()
+        self.running = False
+        self.vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+        self.tts_engine = None
+        self.pipe = load_model(model_dir)
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='atc-rpo')
+        self.pending_transcriptions = []
 
         if use_tts:
             self._init_tts()
@@ -144,7 +148,6 @@ class ATCTranscriber:
     def _audio_callback(self, indata, frames, time_info, status):
         if status:
             logger.warning(f"Audio status: {status}")
-        # Convert float32 → int16 bytes for webrtcvad
         chunk = (indata[:, 0] * 32768).astype(np.int16).tobytes()
         self.audio_queue.put(chunk)
 
@@ -156,7 +159,7 @@ class ATCTranscriber:
 
     def _transcribe(self, audio_bytes: bytes):
         audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        if len(audio) < SAMPLE_RATE * 0.3:   # skip < 300 ms
+        if len(audio) < SAMPLE_RATE * 0.3:  # skip < 300 ms
             return None
         result = self.pipe(audio, generate_kwargs={"language": "english"})
         text = result["text"].strip()
@@ -175,28 +178,40 @@ class ATCTranscriber:
 
     # ── Live microphone mode ──────────────────────────────────────────────────
     def run_live(self):
-        self.running    = True
-        speech_buf      = b""
-        silent_count    = 0
-        speech_count    = 0
-        in_speech       = False
+        self.running = True
+        speech_buf = b""
+        silent_count = 0
+        speech_count = 0
+        in_speech = False
 
         banner()
         print(f"{C.BOLD}Listening… (Ctrl+C to stop){C.END}\n")
         logger.info("Live capture started.")
 
         stream_kwargs = dict(
-            samplerate  = SAMPLE_RATE,
-            channels    = CHANNELS,
-            dtype       = "float32",
-            blocksize   = CHUNK_SIZE,
-            callback    = self._audio_callback,
+            samplerate=SAMPLE_RATE,
+            channels=CHANNELS,
+            dtype="float32",
+            blocksize=CHUNK_SIZE,
+            callback=self._audio_callback,
         )
         if self.device_index is not None:
             stream_kwargs["device"] = self.device_index
 
         with sd.InputStream(**stream_kwargs):
             while self.running:
+                for future in list(self.pending_transcriptions):
+                    if future.done():
+                        self.pending_transcriptions.remove(future)
+                        try:
+                            text = future.result()
+                        except Exception:
+                            continue
+                        if text:
+                            self._print_transcript(text)
+                            if self.use_tts:
+                                self.executor.submit(self._speak, text)
+
                 try:
                     chunk = self.audio_queue.get(timeout=1.0)
                 except queue.Empty:
@@ -205,29 +220,21 @@ class ATCTranscriber:
                 is_speech = self._is_speech(chunk)
 
                 if is_speech:
-                    speech_buf   += chunk
+                    speech_buf += chunk
                     speech_count += 1
-                    silent_count  = 0
-                    in_speech     = True
-
+                    silent_count = 0
+                    in_speech = True
                 elif in_speech:
-                    speech_buf   += chunk
+                    speech_buf += chunk
                     silent_count += 1
 
                     if silent_count >= SILENCE_CHUNKS:
                         if speech_count >= MIN_SPEECH_CHUNKS:
-                            text = self._transcribe(speech_buf)
-                            if text:
-                                self._print_transcript(text)
-                                if self.use_tts:
-                                    threading.Thread(
-                                        target=self._speak, args=(text,), daemon=True
-                                    ).start()
-                        # Reset
-                        speech_buf   = b""
+                            self.pending_transcriptions.append(self.executor.submit(self._transcribe, speech_buf))
+                        speech_buf = b""
                         silent_count = 0
                         speech_count = 0
-                        in_speech    = False
+                        in_speech = False
 
     # ── File transcription mode ───────────────────────────────────────────────
     def run_file(self, filepath: str):
@@ -251,6 +258,7 @@ class ATCTranscriber:
 
     def stop(self):
         self.running = False
+        self.executor.shutdown(wait=False, cancel_futures=True)
         logger.info("ATC-RPO stopped.")
 
 
@@ -259,17 +267,17 @@ def main():
     parser = argparse.ArgumentParser(
         description="ATC-RPO: Real-time Air Traffic Control Transcription"
     )
-    parser.add_argument("--tts",          action="store_true",
+    parser.add_argument("--tts", action="store_true",
                         help="Enable text-to-speech readback of transcriptions")
-    parser.add_argument("--file",         type=str, default=None,
+    parser.add_argument("--file", type=str, default=None,
                         help="Transcribe a WAV file instead of live audio")
-    parser.add_argument("--device",       type=int, default=None,
+    parser.add_argument("--device", type=int, default=None,
                         help="Audio input device index (see --list-devices)")
     parser.add_argument("--list-devices", action="store_true",
                         help="List available audio input devices and exit")
-    parser.add_argument("--model-dir",    type=str, default=str(MODEL_DIR),
+    parser.add_argument("--model-dir", type=str, default=str(MODEL_DIR),
                         help="Path to the ATC Whisper model directory")
-    parser.add_argument("--vad",          type=int, default=VAD_AGGRESSIVENESS,
+    parser.add_argument("--vad", type=int, default=VAD_AGGRESSIVENESS,
                         choices=[0, 1, 2, 3],
                         help="VAD aggressiveness 0–3 (default: 2)")
     args = parser.parse_args()
@@ -279,9 +287,9 @@ def main():
         return
 
     transcriber = ATCTranscriber(
-        model_dir    = args.model_dir,
-        use_tts      = args.tts,
-        device_index = args.device,
+        model_dir=args.model_dir,
+        use_tts=args.tts,
+        device_index=args.device,
     )
 
     try:

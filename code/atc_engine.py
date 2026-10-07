@@ -16,8 +16,8 @@ import datetime
 from pathlib import Path
 
 # ── Resolve project root regardless of where code lives ───────────────────────
-_HERE     = Path(__file__).resolve().parent        # code/
-BASE_DIR  = _HERE.parent                           # ETC-LLC-AI-RPO/
+_HERE = Path(__file__).resolve().parent        # code/
+BASE_DIR = _HERE.parent                        # ETC-LLC-AI-RPO/
 FACILITY_DIR = BASE_DIR / "data" / "facilities"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -25,47 +25,84 @@ FACILITY_DIR = BASE_DIR / "data" / "facilities"
 # ─────────────────────────────────────────────────────────────────────────────
 
 AIRLINE_MAP = {
-    'american':'AAL','delta':'DAL','united':'UAL','southwest':'SWA',
-    'jetblue':'JBU','alaska':'ASA','spirit':'NKS','frontier':'FFT',
-    'fedex':'FDX','federal':'FDX','ups':'UPS','atlas':'GTI',
-    'lufthansa':'DLH','british':'BAW','emirates':'UAE',
-    'envoy':'ENY','skywest':'SKW','republic':'RPA','endeavor':'EDV',
-    'horizon':'QXE','cape air':'KAP','sun country':'SCX','allegiant':'AAY',
-    'air force':'AIO','navy':'NVY','army':'AFS',
+    'american': 'AAL', 'delta': 'DAL', 'united': 'UAL', 'southwest': 'SWA',
+    'jetblue': 'JBU', 'alaska': 'ASA', 'spirit': 'NKS', 'frontier': 'FFT',
+    'fedex': 'FDX', 'federal': 'FDX', 'ups': 'UPS', 'atlas': 'GTI',
+    'lufthansa': 'DLH', 'british': 'BAW', 'emirates': 'UAE',
+    'envoy': 'ENY', 'skywest': 'SKW', 'republic': 'RPA', 'endeavor': 'EDV',
+    'horizon': 'QXE', 'cape air': 'KAP', 'sun country': 'SCX', 'allegiant': 'AAY',
+    'air force': 'AIO', 'navy': 'NVY', 'army': 'AFS',
 }
 
 NUM_WORDS = {
-    'zero':'0','one':'1','two':'2','three':'3','four':'4',
-    'five':'5','six':'6','seven':'7','eight':'8','nine':'9','niner':'9',
+    'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+    'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'niner': '9',
 }
 
 ICAO_NAMES = {
-    'AAL':'American','DAL':'Delta','UAL':'United','SWA':'Southwest',
-    'JBU':'JetBlue','ASA':'Alaska','NKS':'Spirit','FFT':'Frontier',
-    'FDX':'FedEx','UPS':'UPS','GTI':'Atlas','DLH':'Lufthansa',
-    'BAW':'Speedbird','UAE':'Emirates','ENY':'Envoy','SKW':'SkyWest',
-    'RPA':'Republic','EDV':'Endeavor','QXE':'Horizon','KAP':'Cape Air',
-    'SCX':'Sun Country','AAY':'Allegiant','AIO':'Air Force','NVY':'Navy',
+    'AAL': 'American', 'DAL': 'Delta', 'UAL': 'United', 'SWA': 'Southwest',
+    'JBU': 'JetBlue', 'ASA': 'Alaska', 'NKS': 'Spirit', 'FFT': 'Frontier',
+    'FDX': 'FedEx', 'UPS': 'UPS', 'GTI': 'Atlas', 'DLH': 'Lufthansa',
+    'BAW': 'Speedbird', 'UAE': 'Emirates', 'ENY': 'Envoy', 'SKW': 'SkyWest',
+    'RPA': 'Republic', 'EDV': 'Endeavor', 'QXE': 'Horizon', 'KAP': 'Cape Air',
+    'SCX': 'Sun Country', 'AAY': 'Allegiant', 'AIO': 'Air Force', 'NVY': 'Navy',
 }
 
 # NATO phonetic → letter  ('delta'/'golf' conflict with airline names;
 # airline lookup runs first so this is safe)
 NATO_ALPHA = {
-    'alpha':'A','bravo':'B','charlie':'C','foxtrot':'F','golf':'G',
-    'hotel':'H','india':'I','juliet':'J','kilo':'K','lima':'L',
-    'mike':'M','oscar':'O','papa':'P','quebec':'Q','romeo':'R',
-    'sierra':'S','tango':'T','uniform':'U','victor':'V','whiskey':'W',
-    'xray':'X','x-ray':'X','yankee':'Y','zulu':'Z',
+    'alpha': 'A', 'bravo': 'B', 'charlie': 'C', 'foxtrot': 'F', 'golf': 'G',
+    'hotel': 'H', 'india': 'I', 'juliet': 'J', 'kilo': 'K', 'lima': 'L',
+    'mike': 'M', 'oscar': 'O', 'papa': 'P', 'quebec': 'Q', 'romeo': 'R',
+    'sierra': 'S', 'tango': 'T', 'uniform': 'U', 'victor': 'V', 'whiskey': 'W',
+    'xray': 'X', 'x-ray': 'X', 'yankee': 'Y', 'zulu': 'Z',
 }
 
-_ALPHA_NATO = {v: k for k, v in NATO_ALPHA.items()}   # reverse map for readback
+_ALPHA_NATO = {v: k for k, v in NATO_ALPHA.items()}  # reverse map for readback
 
-# ─────────────────────────────────────────────────────────────────────────────
-# FACILITY DATA PACKS
-# ─────────────────────────────────────────────────────────────────────────────
+# Compiled regexes to avoid re-compiling on every parse.
+_RE_TL = re.compile(r"turn\s+left\s+(?:heading\s+)?(\d{1,3})")
+_RE_TR = re.compile(r"turn\s+right\s+(?:heading\s+)?(\d{1,3})")
+_RE_FH = re.compile(r"(?:fly|proceed)\s+(?:direct\s+)?heading\s+(\d{1,3})")
+_RE_HEADING = re.compile(r"heading\s+(\d{1,3})")
+_RE_FL = re.compile(r"(?:flight level|fl)\s+(\d{2,3})")
+_RE_ALT = re.compile(r"(?:climb|descend|maintain|altitude)(?:\s+and\s+maintain)?\s+(\d{3,5})")
+_RE_SPEED = re.compile(r"(?:(?:reduce|increase|maintain)\s+)?speed\s+(\d{2,3})")
+_RE_SQUAWK = re.compile(r"squawk\s+(\d{4})")
+_RE_APPROACH = re.compile(r"cleared\s+(.+?)(?:\s+approach)?(?:\s+runway\s+|\s+)(\d{1,2}[LRC]?)\b")
+_RE_DIRECT = re.compile(r"(?:proceed\s+direct|fly\s+direct|direct)\s+([A-Za-z]{3,5})\b")
+_RE_FREQ = re.compile(r"(?:contact|monitor|over to)\s+\w+\s+(?:on\s+)?(\d{3}\.\d{1,3})")
+_RE_APPROACH_TYPES = [
+    (re.compile(r"ils\s+z\b"), "ILSZ"),
+    (re.compile(r"ils\b"), "ILS"),
+    (re.compile(r"rnav\s*\(gnss\)"), "RNAV"),
+    (re.compile(r"rnav\s*\(gps\)"), "RNAV"),
+    (re.compile(r"rnav\b"), "RNAV"),
+    (re.compile(r"lda\b"), "LDA"),
+    (re.compile(r"loc\b"), "LOC"),
+    (re.compile(r"visual\b"), "VIS"),
+]
 
+# Build a direct lookup index for facility approach codes once per facility load.
 _facility: dict = {}
+_approach_index: dict[tuple[str, str], str] = {}
 
+
+def _rebuild_approach_index(facility: dict) -> dict[tuple[str, str], str]:
+    index: dict[tuple[str, str], str] = {}
+    for airport_approaches in facility.get("approaches", {}).values():
+        for appr in airport_approaches:
+            appr_type = str(appr.get("type", "")).upper()
+            runway = str(appr.get("runway", "")).upper()
+            stars_code = appr.get("stars_code")
+            if appr_type and runway and stars_code:
+                index[(appr_type, runway)] = str(stars_code)
+    return index
+
+
+# ────────────────────────────────────────────────────────────────
+# FACILITY DATA PACKS
+# ────────────────────────────────────────────────────────────────
 
 def list_facilities() -> list[str]:
     """Return sorted list of available facility IDs."""
@@ -76,13 +113,14 @@ def list_facilities() -> list[str]:
 
 def load_facility(facility_id: str) -> dict:
     """Load a facility JSON pack. Returns the dict or {} on failure."""
-    global _facility
+    global _facility, _approach_index
     path = FACILITY_DIR / f"{facility_id}.json"
     if not path.exists():
         print(f"[!] Facility pack not found: {path}")
         return {}
     with open(path) as f:
         _facility = json.load(f)
+    _approach_index = _rebuild_approach_index(_facility)
     print(f"[*] Loaded facility: {_facility.get('facility_name', facility_id)}")
     return _facility
 
@@ -93,20 +131,18 @@ def facility_fixes() -> set:
 
 def facility_approach_code(appr_type: str, runway: str) -> str | None:
     """Look up STARS code from loaded facility pack, or None to use computed value."""
-    for airport_approaches in _facility.get("approaches", {}).values():
-        for appr in airport_approaches:
-            if appr["type"] == appr_type and appr["runway"].upper() == runway.upper():
-                return appr["stars_code"]
-    return None
+    if not _facility:
+        return None
+    return _approach_index.get((str(appr_type).upper(), str(runway).upper()))
 
 
 def get_loaded_facility() -> dict:
     return _facility
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 # PARSER HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 
 def _w2d(t: str) -> str:
     """Replace spoken number-words with digits."""
@@ -125,7 +161,7 @@ def _resolve_nnumber(text: str) -> tuple[str | None, str]:
     m = re.search(r"\bnovember\b", lower)
     if not m:
         return None, text
-    after  = lower[m.end():].strip()
+    after = lower[m.end():].strip()
     tokens = after.split()
     chars, consumed = [], 0
     for tok in tokens:
@@ -143,27 +179,16 @@ def _resolve_nnumber(text: str) -> tuple[str | None, str]:
     return 'N' + ''.join(chars), ' '.join(tokens[consumed:])
 
 
-_APPR_TYPES = [
-    (r"ils\s+z\b",        "ILSZ"),
-    (r"ils\b",            "ILS"),
-    (r"rnav\s*\(gnss\)",  "RNAV"),
-    (r"rnav\s*\(gps\)",   "RNAV"),
-    (r"rnav\b",           "RNAV"),
-    (r"lda\b",            "LDA"),
-    (r"loc\b",            "LOC"),
-    (r"visual\b",         "VIS"),
-]
-
 _CMD_PATTERNS = [
-    r"heading\s+\d",
-    r"turn\s+(left|right)",
-    r"(climb|descend|maintain)\s+\d",
-    r"flight\s+level\s+\d",
-    r"speed\s+\d",
-    r"squawk\s+\d{4}",
-    r"cleared\s+(ils|rnav|visual|loc|lda)",
-    r"(proceed|fly)\s+direct",
-    r"contact\s+\w+\s+\d{3}\.",
+    re.compile(r"heading\s+\d"),
+    re.compile(r"turn\s+(left|right)"),
+    re.compile(r"(climb|descend|maintain)\s+\d"),
+    re.compile(r"flight\s+level\s+\d"),
+    re.compile(r"speed\s+\d"),
+    re.compile(r"squawk\s+\d{4}"),
+    re.compile(r"cleared\s+(ils|rnav|visual|loc|lda)"),
+    re.compile(r"(proceed|fly)\s+direct"),
+    re.compile(r"contact\s+\w+\s+\d{3}\."),
 ]
 
 _last_callsign: str | None = None
@@ -172,12 +197,12 @@ _CALLSIGN_TTL = 45.0
 
 
 def _has_command_tokens(lower_text: str) -> bool:
-    return any(re.search(p, lower_text) for p in _CMD_PATTERNS)
+    return any(pattern.search(lower_text) for pattern in _CMD_PATTERNS)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 # PARSER
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 
 def parse_atc_command(text: str) -> tuple[str | None, str | None]:
     """
@@ -197,9 +222,9 @@ def parse_atc_command(text: str) -> tuple[str | None, str | None]:
     FREQ_119.1  frequency change (verbal only, no STARS keystroke)
     """
     global _last_callsign, _last_callsign_time
-    lower    = text.lower()
+    lower = text.lower()
     callsign = None
-    rest     = ""
+    rest = ""
 
     # 1) Airline callsign
     for name, icao in AIRLINE_MAP.items():
@@ -209,7 +234,7 @@ def parse_atc_command(text: str) -> tuple[str | None, str | None]:
             m = re.match(r"\s*(\d{1,4})", after)
             if m:
                 callsign = icao + m.group(1)
-                rest     = after[m.end():].strip()
+                rest = after[m.end():].strip()
                 break
 
     # 2) N-number (GA)
@@ -221,78 +246,87 @@ def parse_atc_command(text: str) -> tuple[str | None, str | None]:
         age = time.time() - _last_callsign_time
         if _last_callsign and age < _CALLSIGN_TTL and _has_command_tokens(lower):
             callsign = _last_callsign
-            rest     = text
+            rest = text
             print(f"[~] Implicit callsign: {callsign} ({age:.0f}s ago)")
         else:
             return None, None
 
-    _last_callsign      = callsign
+    _last_callsign = callsign
     _last_callsign_time = time.time()
 
-    r      = _w2d(rest.lower())
+    r = _w2d(rest.lower())
     tokens = []
 
     # Heading
-    tl = re.search(r"turn\s+left\s+(?:heading\s+)?(\d{1,3})", r)
-    tr = re.search(r"turn\s+right\s+(?:heading\s+)?(\d{1,3})", r)
-    fh = re.search(r"(?:fly|proceed)\s+(?:direct\s+)?heading\s+(\d{1,3})", r)
-    if tl:     tokens += ["TL", "H" + tl.group(1).zfill(3)]
-    elif tr:   tokens += ["TR", "H" + tr.group(1).zfill(3)]
-    elif fh:   tokens += ["FH", "H" + fh.group(1).zfill(3)]
+    tl = _RE_TL.search(r)
+    tr = _RE_TR.search(r)
+    fh = _RE_FH.search(r)
+    if tl:
+        tokens += ["TL", "H" + tl.group(1).zfill(3)]
+    elif tr:
+        tokens += ["TR", "H" + tr.group(1).zfill(3)]
+    elif fh:
+        tokens += ["FH", "H" + fh.group(1).zfill(3)]
     else:
-        h = re.search(r"heading\s+(\d{1,3})", r)
-        if h: tokens.append("H" + h.group(1).zfill(3))
+        h = _RE_HEADING.search(r)
+        if h:
+            tokens.append("H" + h.group(1).zfill(3))
 
     # Altitude
-    afl = re.search(r"(?:flight level|fl)\s+(\d{2,3})", r)
-    aft = re.search(r"(?:climb|descend|maintain|altitude)(?:\s+and\s+maintain)?\s+(\d{3,5})", r)
-    if afl:   tokens.append("A" + afl.group(1))
-    elif aft: tokens.append("A" + str(int(aft.group(1)) // 100))
+    afl = _RE_FL.search(r)
+    aft = _RE_ALT.search(r)
+    if afl:
+        tokens.append("A" + afl.group(1))
+    elif aft:
+        tokens.append("A" + str(int(aft.group(1)) // 100))
 
     # Speed
-    spd = re.search(r"(?:(?:reduce|increase|maintain)\s+)?speed\s+(\d{2,3})", r)
-    if spd: tokens.append("S" + spd.group(1))
+    spd = _RE_SPEED.search(r)
+    if spd:
+        tokens.append("S" + spd.group(1))
 
     # Squawk
-    sq = re.search(r"squawk\s+(\d{4})", r)
-    if sq: tokens.append("SQ" + sq.group(1))
+    sq = _RE_SQUAWK.search(r)
+    if sq:
+        tokens.append("SQ" + sq.group(1))
 
     # Approach clearance
-    clr = re.search(r"cleared\s+(.+?)(?:\s+approach)?(?:\s+runway\s+|\s+)(\d{1,2}[LRC]?)\b", r)
+    clr = _RE_APPROACH.search(r)
     if clr:
         raw_type = clr.group(1).strip()
-        appr_rwy  = clr.group(2).upper()
-        for pattern, tag in _APPR_TYPES:
-            if re.search(pattern, raw_type):
+        appr_rwy = clr.group(2).upper()
+        for pattern, tag in _RE_APPROACH_TYPES:
+            if pattern.search(raw_type):
                 tokens.append(f"APPR_{tag}_{appr_rwy}")
                 break
 
     # Direct-to fix (use original-case rest for uppercase fix names)
-    dtf = re.search(r"(?:proceed\s+direct|fly\s+direct|direct)\s+([A-Za-z]{3,5})\b", rest)
+    dtf = _RE_DIRECT.search(rest)
     if dtf:
         fix = dtf.group(1).upper()
-        if fix not in {"LEFT","RIGHT","TURN","HEADING","SPEED","CLIMB","DESCEND"}:
+        if fix not in {"LEFT", "RIGHT", "TURN", "HEADING", "SPEED", "CLIMB", "DESCEND"}:
             tokens.append("DCT_" + fix)
 
     # Frequency
-    freq = re.search(r"(?:contact|monitor|over to)\s+\w+\s+(?:on\s+)?(\d{3}\.\d{1,3})", r)
-    if freq: tokens.append("FREQ_" + freq.group(1))
+    freq = _RE_FREQ.search(r)
+    if freq:
+        tokens.append("FREQ_" + freq.group(1))
 
     if not tokens:
         return callsign, None
     return callsign, callsign + " " + " ".join(tokens)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 # READBACK GENERATOR
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 
 def generate_pilot_readback(command: str | None) -> str | None:
     if not command:
         return None
 
     def spoken(n):
-        w = ["zero","one","two","three","four","five","six","seven","eight","nine"]
+        w = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
         return " ".join(w[int(d)] for d in str(n) if d.isdigit())
 
     def spoken_freq(f):
@@ -300,7 +334,7 @@ def generate_pilot_readback(command: str | None) -> str | None:
         return spoken(parts[0]) + " point " + spoken(parts[1])
 
     parts = command.strip().split()
-    cs    = parts[0]
+    cs = parts[0]
 
     if cs.startswith('N') and len(cs) > 1 and cs[1].isdigit():
         cs_spoken = ' '.join(
@@ -308,23 +342,28 @@ def generate_pilot_readback(command: str | None) -> str | None:
             for c in cs
         )
     else:
-        name      = ICAO_NAMES.get(cs[:3], cs[:3])
+        name = ICAO_NAMES.get(cs[:3], cs[:3])
         cs_spoken = name + " " + spoken(cs[3:])
 
     rb = []
-    i  = 1
+    i = 1
     while i < len(parts):
-        t  = parts[i]
-        nx = parts[i+1] if i + 1 < len(parts) else ""
-        if   t == "TL" and nx.startswith("H"): rb.append("turn left heading "  + spoken(nx[1:])); i += 2
-        elif t == "TR" and nx.startswith("H"): rb.append("turn right heading " + spoken(nx[1:])); i += 2
-        elif t == "FH" and nx.startswith("H"): rb.append("fly heading "        + spoken(nx[1:])); i += 2
+        t = parts[i]
+        nx = parts[i + 1] if i + 1 < len(parts) else ""
+        if t == "TL" and nx.startswith("H"):
+            rb.append("turn left heading " + spoken(nx[1:])); i += 2
+        elif t == "TR" and nx.startswith("H"):
+            rb.append("turn right heading " + spoken(nx[1:])); i += 2
+        elif t == "FH" and nx.startswith("H"):
+            rb.append("fly heading " + spoken(nx[1:])); i += 2
         elif t.startswith("H"):
             rb.append("heading " + spoken(t[1:])); i += 1
         elif t.startswith("A") and not t.startswith("APPR"):
             alt = int(t[1:])
-            if alt >= 180: rb.append("climb and maintain flight level " + spoken(alt))
-            else:          rb.append("descend and maintain " + spoken(alt * 100))
+            if alt >= 180:
+                rb.append("climb and maintain flight level " + spoken(alt))
+            else:
+                rb.append("descend and maintain " + spoken(alt * 100))
             i += 1
         elif t.startswith("S") and not t.startswith("SQ"):
             rb.append("reduce speed " + spoken(t[1:]) + " knots"); i += 1
@@ -333,7 +372,7 @@ def generate_pilot_readback(command: str | None) -> str | None:
         elif t.startswith("APPR_"):
             _, appr_type, rwy = t.split("_", 2)
             rwy_spoken = spoken(rwy.rstrip("LRC"))
-            suffix = {"L":" left","R":" right","C":" center"}.get(
+            suffix = {"L": " left", "R": " right", "C": " center"}.get(
                 rwy[-1] if rwy[-1].isalpha() else "", "")
             rb.append(f"cleared {appr_type} approach runway {rwy_spoken}{suffix}"); i += 1
         elif t.startswith("DCT_"):
@@ -346,9 +385,9 @@ def generate_pilot_readback(command: str | None) -> str | None:
     return (", ".join(rb) + ", " + cs_spoken) if rb else None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 # COMMAND MAPPER  (internal tokens → STARS keystrokes)
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 
 def map_to_stars(command_str: str | None) -> list[str]:
     """
@@ -358,13 +397,14 @@ def map_to_stars(command_str: str | None) -> list[str]:
     """
     if not command_str:
         return []
-    parts      = command_str.strip().split()
-    keystrokes = [parts[0]]   # callsign selects the track
+    parts = command_str.strip().split()
+    keystrokes = [parts[0]]
     i = 1
     while i < len(parts):
         tok = parts[i]
         if tok in ('TL', 'TR', 'FH'):
-            i += 1; continue
+            i += 1
+            continue
         if tok.startswith('H'):
             keystrokes.append(tok)
         elif tok.startswith('A') and not tok.startswith('APPR'):
@@ -380,19 +420,18 @@ def map_to_stars(command_str: str | None) -> list[str]:
             if fac_code:
                 keystrokes.append(fac_code)
             else:
-                prefix = {'ILS':'CI','ILSZ':'CI','RNAV':'CR',
-                          'LOC':'CL','LDA':'CL','VIS':'CV'}.get(appr_type, 'C')
+                prefix = {'ILS': 'CI', 'ILSZ': 'CI', 'RNAV': 'CR',
+                          'LOC': 'CL', 'LDA': 'CL', 'VIS': 'CV'}.get(appr_type, 'C')
                 keystrokes.append(f"{prefix}{rwy}")
         elif tok.startswith('DCT_'):
             keystrokes.append('D' + tok[4:])
-        # FREQ_ → verbal only, no STARS keystroke
         i += 1
     return keystrokes
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 # STATE ENGINE
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 
 _aircraft_states: dict = {}
 
@@ -401,21 +440,27 @@ def update_aircraft_state(callsign: str, command_str: str) -> None:
     """Update per-aircraft state dict. Does NOT emit via socketio — caller handles that."""
     if not callsign or not command_str:
         return
-    state  = _aircraft_states.setdefault(callsign, {})
+    state = _aircraft_states.setdefault(callsign, {})
     tokens = command_str.split()[1:]
     for tok in tokens:
-        if tok in ('TL','TR','FH'): continue
-        if   tok.startswith('H')                             : state['hdg']  = tok[1:]
+        if tok in ('TL', 'TR', 'FH'):
+            continue
+        if tok.startswith('H'):
+            state['hdg'] = tok[1:]
         elif tok.startswith('A') and not tok.startswith('APPR'):
             alt = int(tok[1:])
             state['alt'] = f"FL{alt}" if alt >= 180 else str(alt * 100)
-        elif tok.startswith('S') and not tok.startswith('SQ'): state['spd']  = tok[1:]
-        elif tok.startswith('SQ')                            : state['sq']   = tok[2:]
+        elif tok.startswith('S') and not tok.startswith('SQ'):
+            state['spd'] = tok[1:]
+        elif tok.startswith('SQ'):
+            state['sq'] = tok[2:]
         elif tok.startswith('APPR_'):
-            _, t, r = tok.split('_', 2); state['appr'] = f"{t} {r}"
-        elif tok.startswith('DCT_')                          : state['dct']  = tok[4:]
+            _, t, r = tok.split('_', 2)
+            state['appr'] = f"{t} {r}"
+        elif tok.startswith('DCT_'):
+            state['dct'] = tok[4:]
     state['last_cmd'] = command_str
-    state['ts']       = datetime.datetime.now().strftime("%H:%M:%S")
+    state['ts'] = datetime.datetime.now().strftime("%H:%M:%S")
 
 
 def get_aircraft_states() -> dict:
@@ -431,16 +476,15 @@ def remove_aircraft(callsign: str) -> bool:
 
 def get_confidence(callsign: str | None, tokens: list[str]) -> tuple[bool, str]:
     """Require at least one actionable token (not just turn hints or frequency)."""
-    actionable = [t for t in tokens
-                  if t not in ('TL','TR','FH') and not t.startswith('FREQ_')]
+    actionable = [t for t in tokens if t not in ('TL', 'TR', 'FH') and not t.startswith('FREQ_')]
     if not actionable:
         return False, "callsign only — no actionable command"
     return True, f"{len(actionable)} token(s)"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 # CONVENIENCE: full pipeline on a text string
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────
 
 def process_text(text: str) -> dict:
     """
@@ -448,22 +492,22 @@ def process_text(text: str) -> dict:
     Returns a dict ready to send as JSON.
     """
     ts = datetime.datetime.now().strftime("%H:%M:%S")
-    cs, command  = parse_atc_command(text)
-    readback     = generate_pilot_readback(command)
-    tokens       = command.split()[1:] if command else []
+    cs, command = parse_atc_command(text)
+    readback = generate_pilot_readback(command)
+    tokens = command.split()[1:] if command else []
     confident, reason = get_confidence(cs, tokens)
-    stars_keys   = map_to_stars(command)
+    stars_keys = map_to_stars(command)
 
     if cs and command:
         update_aircraft_state(cs, command)
 
     return {
-        "ts":               ts,
-        "transcript":       text,
-        "callsign":         cs,
-        "command":          command,
-        "readback":         readback,
-        "stars_keys":       stars_keys,
-        "confident":        confident,
+        "ts": ts,
+        "transcript": text,
+        "callsign": cs,
+        "command": command,
+        "readback": readback,
+        "stars_keys": stars_keys,
+        "confident": confident,
         "confidence_reason": reason,
     }

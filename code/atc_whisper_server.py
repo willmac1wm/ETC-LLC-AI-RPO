@@ -5,6 +5,9 @@ import time
 import queue
 import threading
 import datetime
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import sounddevice as sd
 import webrtcvad
@@ -15,8 +18,8 @@ from flask_socketio import SocketIO, emit
 
 try:
     import pyautogui
-    pyautogui.FAILSAFE = True   # moving mouse to any corner aborts injection
-    pyautogui.PAUSE    = 0.05   # 50 ms between keystrokes
+    pyautogui.FAILSAFE = True  # moving mouse to any corner aborts injection
+    pyautogui.PAUSE = 0.05  # 50 ms between keystrokes
     PYAUTOGUI_AVAILABLE = True
 except ImportError:
     PYAUTOGUI_AVAILABLE = False
@@ -25,19 +28,19 @@ except ImportError:
 try:
     import pyttsx3 as _pyttsx3
     _tts_engine = _pyttsx3.init()
-    _tts_engine.setProperty('rate', 175)   # slightly faster than default (natural pilot cadence)
-    _tts_lock   = threading.Lock()         # pyttsx3 is not thread-safe
+    _tts_engine.setProperty('rate', 175)  # slightly faster than default (natural pilot cadence)
+    _tts_lock = threading.Lock()  # pyttsx3 is not thread-safe
     TTS_AVAILABLE = True
 except Exception:
     TTS_AVAILABLE = False
     print("[!] pyttsx3 unavailable — TTS readback disabled")
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
-BASE_DIR  = Path.home() / "Desktop" / "ETC-LLC-AI-RPO"
-CODE_DIR      = BASE_DIR / "code"
-MODEL_DIR     = BASE_DIR / "models" / "atc-whisper"
-LOG_DIR       = BASE_DIR / "logs"
-FACILITY_DIR  = BASE_DIR / "data" / "facilities"
+# ─── Paths ───────────────────────────────────────────────────────────────────
+BASE_DIR = Path.home() / "Desktop" / "ETC-LLC-AI-RPO"
+CODE_DIR = BASE_DIR / "code"
+MODEL_DIR = BASE_DIR / "models" / "atc-whisper"
+LOG_DIR = BASE_DIR / "logs"
+FACILITY_DIR = BASE_DIR / "data" / "facilities"
 LOG_DIR.mkdir(exist_ok=True)
 
 # ─── Engine (shared parser / state / facility logic) ─────────────────────────
@@ -50,7 +53,6 @@ from atc_engine import (
     process_text as _engine_process_text,
     _aircraft_states,
 )
-
 
 # ─── Keyboard Injection ───────────────────────────────────────────────────────
 def map_to_stars(command_str):
@@ -72,7 +74,7 @@ def map_to_stars(command_str):
     if not command_str:
         return []
     parts = command_str.strip().split()
-    keystrokes = [parts[0]]   # callsign first — selects the track
+    keystrokes = [parts[0]]
     i = 1
     while i < len(parts):
         tok = parts[i]
@@ -80,30 +82,28 @@ def map_to_stars(command_str):
             i += 1
             continue
         if tok.startswith('H'):
-            keystrokes.append(tok)                      # H180
+            keystrokes.append(tok)
         elif tok.startswith('A') and not tok.startswith('APPR'):
             alt = int(tok[1:])
             if alt >= 180:
-                keystrokes.append(f"A{alt:03d}")        # A350
+                keystrokes.append(f"A{alt:03d}")
             else:
-                keystrokes.append(f"D{alt:03d}")        # D030
+                keystrokes.append(f"D{alt:03d}")
         elif tok.startswith('S') and not tok.startswith('SQ'):
-            keystrokes.append(tok)                      # S250
+            keystrokes.append(tok)
         elif tok.startswith('SQ'):
-            keystrokes.append(tok)                      # SQ4521
+            keystrokes.append(tok)
         elif tok.startswith('APPR_'):
             _, appr_type, rwy = tok.split('_', 2)
-            # Prefer facility pack lookup; fall back to computed code
             fac_code = facility_approach_code(appr_type, rwy)
             if fac_code:
                 keystrokes.append(fac_code)
             else:
                 prefix = {'ILS': 'CI', 'ILSZ': 'CI', 'RNAV': 'CR',
                           'LOC': 'CL', 'LDA': 'CL', 'VIS': 'CV'}.get(appr_type, 'C')
-                keystrokes.append(f"{prefix}{rwy}")     # CI27L
+                keystrokes.append(f"{prefix}{rwy}")
         elif tok.startswith('DCT_'):
-            keystrokes.append('D' + tok[4:])            # DKEYED
-        # FREQ_ tokens: verbal only, no STARS keystroke
+            keystrokes.append('D' + tok[4:])
         i += 1
     return keystrokes
 
@@ -118,7 +118,7 @@ def inject_keystrokes(command_str):
     keystrokes = map_to_stars(command_str)
     if not keystrokes:
         return
-    time.sleep(1.5)   # safety window — operator can verify before keys fire
+    time.sleep(1.5)
     try:
         for ks in keystrokes:
             pyautogui.write(ks, interval=0.05)
@@ -127,7 +127,7 @@ def inject_keystrokes(command_str):
         inject_count += 1
         socketio.emit('inject_status', {
             'count': inject_count,
-            'last':  ' → '.join(keystrokes),
+            'last': ' → '.join(keystrokes),
         })
     except Exception as e:
         err = "FAILSAFE: injection aborted" if "FailSafe" in type(e).__name__ else str(e)
@@ -155,35 +155,53 @@ app.config['SECRET_KEY'] = 'atc-whisper-secret'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # ─── Audio Settings ───────────────────────────────────────────────────────────
-SAMPLE_RATE        = 16000
-CHANNELS           = 1
-CHUNK_MS           = 30
-CHUNK_SIZE         = int(SAMPLE_RATE * CHUNK_MS / 1000)
+SAMPLE_RATE = 16000
+CHANNELS = 1
+CHUNK_MS = 30
+CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_MS / 1000)
 VAD_AGGRESSIVENESS = 2
-SILENCE_CHUNKS     = 25
-MIN_SPEECH_CHUNKS  = 10
+SILENCE_CHUNKS = 25
+MIN_SPEECH_CHUNKS = 10
 
 # ─── Global State ─────────────────────────────────────────────────────────────
-audio_queue      = queue.Queue()
-running          = False
-ptt_active       = False
-selected_device  = None
-vad              = webrtcvad.Vad(VAD_AGGRESSIVENESS)
-asr_pipe         = None
+audio_queue = queue.Queue()
+running = False
+ptt_active = False
+selected_device = None
+vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+asr_pipe = None
 injection_enabled = False
-inject_count      = 0
-tts_enabled       = False
-ptt_mode          = True    # True = PTT required; False = continuous VAD
-session_log       = []      # [{ts, text, command, readback, confident}]
+inject_count = 0
+tts_enabled = False
+ptt_mode = True
+session_log = deque(maxlen=1000)
+WORKER_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix='atc-worker')
 
-# ─── Model Loader ─────────────────────────────────────────────────────────────
+# Facility list cache to avoid re-reading JSON from disk on each UI request.
+facility_cache = {}
+
+
+def get_facility_cache():
+    global facility_cache
+    if facility_cache:
+        return facility_cache
+    for fid in list_facilities():
+        try:
+            with open(FACILITY_DIR / f"{fid}.json") as f:
+                facility_cache[fid] = json.load(f)
+        except Exception:
+            facility_cache[fid] = {'facility_name': fid}
+    return facility_cache
+
+
+# ─── Model Loader ────────────────────────────────────────────────────────────
 def load_model():
     global asr_pipe
     import torch
     from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
     print(f"[*] Loading Whisper model from: {MODEL_DIR}")
-    
+
     if not MODEL_DIR.exists():
         print(f"[!] Model directory not found: {MODEL_DIR}")
         return False
@@ -220,31 +238,33 @@ def load_model():
     print("[*] Model loaded successfully.")
     return True
 
+
 # ─── Audio Callback ───────────────────────────────────────────────────────────
 def audio_callback(indata, frames, time_info, status):
     global ptt_active
     if status:
         print(f"[!] Audio Status: {status}")
     chunk = (indata[:, 0] * 32768).astype(np.int16).tobytes()
-    # PTT mode: only queue when button held
-    # Continuous mode: always queue; VAD in processing thread handles gating
     if not ptt_mode or ptt_active:
         audio_queue.put(chunk)
 
+
 def transcribe(audio_bytes):
-    if asr_pipe is None: return None
+    if asr_pipe is None:
+        return None
     audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-    if len(audio) < SAMPLE_RATE * 0.3: return None
+    if len(audio) < SAMPLE_RATE * 0.3:
+        return None
     result = asr_pipe(audio, generate_kwargs={"language": "english"})
     text = result["text"].strip()
-    
-    # Filter out common hallucinations during static/silence
+
     if not text or len(text) <= 1 or text.lower() in ["you", "thank you.", "subtitles by", "bye."]:
         return None
-        
+
     return text
 
-# ─── Transcription Result Handler ────────────────────────────────────────────
+
+# ─── Transcription Result Handler ─────────────────────────────────────────────
 def handle_transcription(text):
     """Central handler for a completed utterance.
     Parses, gates confidence, updates state, emits to UI, fires TTS + injection."""
@@ -254,41 +274,36 @@ def handle_transcription(text):
     cs, _cmd = parse_atc_command(text)
     _rb = generate_pilot_readback(_cmd)
 
-    # Confidence gate
-    tokens    = _cmd.split()[1:] if _cmd else []
+    tokens = _cmd.split()[1:] if _cmd else []
     confident, reason = get_confidence(cs, tokens)
     print(f"[{'OK' if confident else '!!'}] Confidence: {reason}")
 
     socketio.emit('transcription', {
-        'time':      ts,
-        'text':      text,
-        'type':      'atc',
-        'command':   _cmd,
-        'readback':  _rb,
+        'time': ts,
+        'text': text,
+        'type': 'atc',
+        'command': _cmd,
+        'readback': _rb,
         'confident': confident,
     })
 
-    # Append to session log
     session_log.append({
-        'ts':        ts,
-        'text':      text,
-        'command':   _cmd,
-        'readback':  _rb,
+        'ts': ts,
+        'text': text,
+        'command': _cmd,
+        'readback': _rb,
         'confident': confident,
     })
 
-    # Update state and broadcast
     if cs and _cmd:
         update_aircraft_state(cs, _cmd)
         socketio.emit('state_update', get_aircraft_states())
 
-    # TTS fires regardless of confidence — operator hears what was parsed
     if _rb:
-        threading.Thread(target=speak_readback, args=(_rb,), daemon=True).start()
+        WORKER_POOL.submit(speak_readback, _rb)
 
-    # Injection only fires when confident
     if _cmd and confident:
-        threading.Thread(target=inject_keystrokes, args=(_cmd,), daemon=True).start()
+        WORKER_POOL.submit(inject_keystrokes, _cmd)
     elif _cmd and not confident:
         socketio.emit('inject_status', {'skipped': reason})
 
@@ -300,31 +315,39 @@ def processing_thread():
     silent_count = 0
     speech_count = 0
     in_speech = False
+    pending_transcriptions = []
 
     print(f"[*] Audio processing thread started (Device: {selected_device}).")
-    
+
     try:
-        with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='float32', 
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='float32',
                             blocksize=CHUNK_SIZE, device=selected_device, callback=audio_callback):
             while running:
+                for future in list(pending_transcriptions):
+                    if future.done():
+                        pending_transcriptions.remove(future)
+                        try:
+                            text = future.result()
+                        except Exception:
+                            continue
+                        if text:
+                            handle_transcription(text)
+
                 try:
                     chunk = audio_queue.get(timeout=0.2)
                 except queue.Empty:
-                    # PTT mode: flush buffer when PTT is released mid-speech
                     if ptt_mode and not ptt_active and in_speech:
                         if speech_count >= MIN_SPEECH_CHUNKS:
-                            text = transcribe(speech_buf)
-                            if text:
-                                handle_transcription(text)
-                        speech_buf   = b""
+                            pending_transcriptions.append(WORKER_POOL.submit(transcribe, speech_buf))
+                        speech_buf = b""
                         speech_count = 0
-                        in_speech    = False
+                        in_speech = False
                         socketio.emit('vad_status', {'active': False})
                     continue
 
                 try:
                     is_speech = vad.is_speech(chunk, SAMPLE_RATE)
-                except:
+                except Exception:
                     is_speech = False
 
                 if is_speech:
@@ -338,44 +361,41 @@ def processing_thread():
                     silent_count += 1
                     if silent_count >= SILENCE_CHUNKS:
                         if speech_count >= MIN_SPEECH_CHUNKS:
-                            text = transcribe(speech_buf)
-                            if text:
-                                handle_transcription(text)
-                        speech_buf   = b""
+                            pending_transcriptions.append(WORKER_POOL.submit(transcribe, speech_buf))
+                        speech_buf = b""
                         silent_count = 0
                         speech_count = 0
-                        in_speech    = False
+                        in_speech = False
                         socketio.emit('vad_status', {'active': False})
     except Exception as e:
         print(f"[!] Engine Error: {e}")
         running = False
         socketio.emit('status', {'engine_running': False, 'error': str(e)})
 
-# ─── Routes ───────────────────────────────────────────────────────────────────
+
+# ─── Routes ────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
     return render_template('atc_ai_interface.html')
+
 
 @app.route('/static/<path:path>')
 def send_static(path):
     return send_from_directory(str(CODE_DIR), path)
 
+
 @app.route('/facilities')
 def get_facilities():
     packs = []
-    for fid in list_facilities():
-        path = FACILITY_DIR / f"{fid}.json"
-        try:
-            with open(path) as f:
-                d = json.load(f)
-            packs.append({'id': fid, 'name': d.get('facility_name', fid)})
-        except Exception:
-            packs.append({'id': fid, 'name': fid})
+    cache = get_facility_cache()
+    for fid in sorted(cache):
+        d = cache[fid]
+        packs.append({'id': fid, 'name': d.get('facility_name', fid)})
     return jsonify(packs)
+
 
 @app.route('/load_facility/<facility_id>')
 def load_facility_route(facility_id):
-    # Sanitise: only allow alphanumeric + underscore
     import re
     if not re.match(r'^[A-Za-z0-9_]{1,10}$', facility_id):
         return jsonify({'error': 'invalid facility id'}), 400
@@ -384,10 +404,11 @@ def load_facility_route(facility_id):
         return jsonify({'error': 'not found'}), 404
     return jsonify({'id': facility_id, 'name': fac.get('facility_name'), 'fixes': len(fac.get('fixes', []))})
 
+
 @app.route('/download_log')
 def download_log():
     lines = ["TIME\tTRANSCRIPT\tCOMMAND\tREADBACK\tCONFIDENT"]
-    for e in session_log:
+    for e in list(session_log):
         lines.append("\t".join([
             e.get('ts', ''),
             e.get('text', ''),
@@ -402,30 +423,32 @@ def download_log():
         headers={'Content-Disposition': 'attachment; filename=atc_session_log.tsv'}
     )
 
+
 @socketio.on('connect')
 def handle_connect():
     print("[*] Client connected.")
-    # Send device list on connect
     devices = []
     try:
         devs = sd.query_devices()
         for i, d in enumerate(devs):
             if d['max_input_channels'] > 0:
                 devices.append({'index': i, 'name': d['name']})
-    except:
+    except Exception:
         pass
     emit('status', {'connected': True, 'engine_running': running, 'devices': devices})
+
 
 @socketio.on('start_engine')
 def handle_start(data=None):
     global running, selected_device
     if data and 'device_index' in data:
         selected_device = data['device_index']
-    
+
     if not running:
         running = True
         threading.Thread(target=processing_thread, daemon=True).start()
         emit('status', {'engine_running': True})
+
 
 @socketio.on('ptt_status')
 def handle_ptt(data):
@@ -433,11 +456,13 @@ def handle_ptt(data):
     ptt_active = data.get('active', False)
     print(f"[*] PTT {'ACTIVE' if ptt_active else 'RELEASED'}")
 
+
 @socketio.on('stop_engine')
 def handle_stop():
     global running
     running = False
     emit('status', {'engine_running': False})
+
 
 @socketio.on('toggle_vad_mode')
 def handle_toggle_vad_mode(data):
@@ -447,6 +472,7 @@ def handle_toggle_vad_mode(data):
     print(f"[*] VAD mode: {mode}")
     emit('vad_mode_status', {'ptt_mode': ptt_mode})
 
+
 @socketio.on('toggle_tts')
 def handle_toggle_tts(data):
     global tts_enabled
@@ -454,9 +480,10 @@ def handle_toggle_tts(data):
     state = 'ENABLED' if tts_enabled else 'DISABLED'
     print(f"[*] TTS readback {state}")
     emit('tts_status', {
-        'enabled':   tts_enabled,
+        'enabled': tts_enabled,
         'available': TTS_AVAILABLE,
     })
+
 
 @socketio.on('toggle_injection')
 def handle_toggle_injection(data):
@@ -465,9 +492,10 @@ def handle_toggle_injection(data):
     state = 'ENABLED' if injection_enabled else 'DISABLED'
     print(f"[*] Keyboard injection {state}")
     emit('inject_status', {
-        'enabled':   injection_enabled,
+        'enabled': injection_enabled,
         'available': PYAUTOGUI_AVAILABLE,
     })
+
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
